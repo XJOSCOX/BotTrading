@@ -1,0 +1,7 @@
+streamlit
+pandas
+yfinance
+python-dotenv
+requests
+signalrcore
+

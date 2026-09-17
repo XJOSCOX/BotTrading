@@ -1,0 +1,246 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+html,body {margin:0;background:#0f131a;color:#d6dce5;font:12px 'Segoe UI',sans-serif;overflow:hidden;}
+#frame {border:1px solid #46505e;border-radius:6px;overflow:hidden;box-sizing:border-box;}
+#toolbar {height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;background:#191f28;border-bottom:1px solid #39414d;box-sizing:border-box;}
+#title {flex:1;min-width:0;overflow:hidden;white-space:nowrap;}
+button {background:#222831;color:#d6dce5;border:1px solid #39414d;border-radius:4px;height:26px;min-width:28px;cursor:pointer;}
+button:hover {background:#343d49;}
+#chart {width:100%;}
+#price-pane {position:relative;}
+#ohlc {position:absolute;top:7px;left:8px;z-index:2;pointer-events:none;font-size:11px;color:#afb8c5;max-width:calc(100% - 90px);line-height:1.6;}
+#summary {display:flex;gap:5px 16px;flex-wrap:wrap;padding:6px 8px;background:#151b23;font-size:11px;line-height:16px;}
+#summary span {color:#9da8b8;white-space:nowrap;}
+#summary b {margin-left:5px;color:#e0e5ec;font-weight:600;}
+#indicators {position:relative;}
+#indicators summary {cursor:pointer;border:1px solid #39414d;padding:5px;border-radius:4px;list-style:none;}
+#indicator-menu {position:absolute;right:0;top:30px;background:#24262e;border:1px solid #46505e;padding:10px;z-index:10;width:135px;}
+#indicator-menu label {display:block;padding:5px 0;}
+.indicator {position:relative;border-top:1px solid #46505e;}
+.indicator-label {position:absolute;top:4px;left:8px;z-index:2;font-size:11px;color:#abb4c1;pointer-events:none;}
+.pane-divider {height:7px;background:#242c37;cursor:row-resize;touch-action:none;display:flex;align-items:center;justify-content:center;}
+.pane-divider:after {content:'';height:2px;width:32px;background:#758195;border-radius:2px;}
+.pane-divider:hover,.pane-divider:focus {background:#3a495b;outline:none;}
+</style></head><body>
+<div id="frame"><div id="toolbar"><span id="title"></span><details id="indicators"><summary title="Indicators">Indicators</summary><div id="indicator-menu"><label><input id="show-volume" type="checkbox" checked>Volume</label><label><input id="show-rsi" type="checkbox" checked>RSI 14</label><label><input id="show-ema" type="checkbox">EMA 20 / 50</label></div></details><button id="out" title="Zoom out" aria-label="Zoom out">−</button><button id="in" title="Zoom in" aria-label="Zoom in">+</button><button id="fit" title="Show all loaded history">48H</button><button id="live" title="Return to latest candles">Live</button></div>
+<div id="summary"></div><div id="price-pane"><div id="ohlc"></div><div id="chart"></div></div>
+<div id="volume-resize" class="pane-divider" role="separator" aria-label="Resize volume" aria-orientation="horizontal" tabindex="0" title="Drag to resize volume"></div>
+<div class="indicator" id="volume-pane"><span class="indicator-label" id="volume-label">Volume</span><div id="volume"></div></div>
+<div id="rsi-resize" class="pane-divider" role="separator" aria-label="Resize RSI" aria-orientation="horizontal" tabindex="0" title="Drag to resize RSI"></div>
+<div class="indicator" id="rsi-pane"><span class="indicator-label" id="rsi-label">RSI (14)</span><div id="rsi"></div></div>
+</div>
+<script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
+<script>
+const send = (type, extra={}) => window.parent.postMessage({isStreamlitMessage:true,type,...extra}, '*');
+let chart, series, volumeSeries, volumeChart, rsiChart, rsiSeries, ema20Series, ema50Series, chartHeight=620, syncing=false, bars=[], storageKey='', follow=true, updating=false;
+let paneHeights={volume:60,rsi:130}, draggingPane=false;
+try {
+  const saved=JSON.parse(localStorage.getItem('goxtrade-pane-heights'));
+  if(saved && Number.isFinite(saved.volume) && Number.isFinite(saved.rsi))
+    paneHeights={volume:Math.max(40,saved.volume),rsi:Math.max(70,saved.rsi)};
+} catch (_) {}
+const rsiPoint = bar => bar.rsi == null ? {time:bar.time} : {time:bar.time,value:bar.rsi};
+const volumePoint = bar => bar.volume == null ? {time:bar.time} :
+  {time:bar.time,value:bar.volume,color:bar.close>=bar.open?'#226b66':'#893843'};
+function layoutPanes() {
+  const volumeVisible=document.getElementById('show-volume').checked;
+  const rsiVisible=document.getElementById('show-rsi').checked;
+  let volumeHeight=volumeVisible?paneHeights.volume:0, rsiHeight=rsiVisible?paneHeights.rsi:0;
+  const summaryHeight=document.getElementById('summary').getBoundingClientRect().height;
+  const available=Math.max(110,chartHeight-36-summaryHeight-160-8*(Number(volumeVisible)+Number(rsiVisible)));
+  if(volumeHeight+rsiHeight>available) {
+    const ratio=available/(volumeHeight+rsiHeight);volumeHeight*=ratio;rsiHeight*=ratio;
+  }
+  document.getElementById('chart').style.height=(chartHeight-36-summaryHeight-volumeHeight-rsiHeight-8*(Number(volumeVisible)+Number(rsiVisible)))+'px';
+  document.getElementById('volume').style.height=volumeHeight+'px';
+  document.getElementById('rsi').style.height=rsiHeight+'px';
+  document.getElementById('volume-pane').style.display=volumeVisible?'block':'none';
+  document.getElementById('rsi-pane').style.display=rsiVisible?'block':'none';
+  document.getElementById('volume-resize').style.display=volumeVisible?'flex':'none';
+  document.getElementById('rsi-resize').style.display=rsiVisible?'flex':'none';
+  if (chart) {
+    chart.timeScale().applyOptions({visible:!volumeVisible&&!rsiVisible});
+    volumeChart.timeScale().applyOptions({visible:volumeVisible&&!rsiVisible});
+    ema20Series.applyOptions({visible:document.getElementById('show-ema').checked});
+    ema50Series.applyOptions({visible:document.getElementById('show-ema').checked});
+  }
+}
+['volume','rsi'].forEach(name=>{
+  const handle=document.getElementById(name+'-resize');
+  let startY=0,startHeight=0;
+  const change=height=>{
+    const other=name==='volume'?'rsi':'volume';
+    const otherHeight=document.getElementById('show-'+other).checked?document.getElementById(other).getBoundingClientRect().height:0;
+    const max=Math.max(name==='volume'?40:70,chartHeight-36-document.getElementById('summary').getBoundingClientRect().height-160-16-otherHeight);
+    paneHeights[name]=Math.max(name==='volume'?40:70,Math.min(max,height));
+    layoutPanes();
+    try {localStorage.setItem('goxtrade-pane-heights',JSON.stringify(paneHeights));} catch (_) {}
+  };
+  handle.addEventListener('pointerdown',event=>{
+    event.preventDefault();handle.setPointerCapture(event.pointerId);draggingPane=true;
+    startY=event.clientY;startHeight=document.getElementById(name).getBoundingClientRect().height;
+  });
+  handle.addEventListener('pointermove',event=>{
+    if(handle.hasPointerCapture(event.pointerId)) change(startHeight+startY-event.clientY);
+  });
+  const finish=()=>{draggingPane=false;};
+  handle.addEventListener('pointerup',finish);handle.addEventListener('pointercancel',finish);
+  handle.addEventListener('keydown',event=>{
+    if(event.key==='ArrowUp'||event.key==='ArrowDown') {
+      event.preventDefault();change(paneHeights[name]+(event.key==='ArrowUp'?10:-10));
+    }
+  });
+});
+['show-volume','show-rsi','show-ema'].forEach(id=>document.getElementById(id).onchange=()=>{
+  layoutPanes();
+  try {localStorage.setItem('goxtrade-indicators',JSON.stringify(['show-volume','show-rsi','show-ema'].map(key=>document.getElementById(key).checked)));} catch (_) {}
+});
+try {
+  const prefs=JSON.parse(localStorage.getItem('goxtrade-indicators'));
+  if (Array.isArray(prefs)) ['show-volume','show-rsi','show-ema'].forEach((key,i)=>document.getElementById(key).checked=prefs[i]);
+} catch (_) {}
+function legend(bar) {
+  if (!bar) return;
+  const fmt=value=>Number(value).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  document.getElementById('ohlc').textContent=`O ${fmt(bar.open)}   H ${fmt(bar.high)}   L ${fmt(bar.low)}   C ${fmt(bar.close)}`;
+  document.getElementById('volume-label').textContent='Volume  '+(bar.volume==null?'--':Number(bar.volume).toLocaleString());
+  document.getElementById('rsi-label').textContent='RSI (14)  '+(bar.rsi==null?'--':bar.rsi.toFixed(2));
+}
+const timeFormat = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+const dateFormat = new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric'});
+function snapshot() {
+  if (!chart || !bars.length) return null;
+  const range=chart.timeScale().getVisibleLogicalRange();
+  if (!range) return null;
+  const index=Math.max(0,Math.min(bars.length-1,Math.round(range.from)));
+  return {range,anchor:bars[index].time,index,follow};
+}
+function restore(view) {
+  if (!view || !bars.length) return;
+  const width=view.range.to-view.range.from;
+  if (view.follow) {
+    chart.timeScale().setVisibleLogicalRange({from:bars.length-1+5-width,to:bars.length-1+5});
+  } else {
+    let index=bars.findIndex(b=>b.time>=view.anchor);
+    if (index<0) index=bars.length-1;
+    const shift=index-view.index;
+    chart.timeScale().setVisibleLogicalRange({from:view.range.from+shift,to:view.range.to+shift});
+  }
+}
+function remember() {
+  if (updating) return;
+  const view=snapshot();
+  if (!view) return;
+  follow=view.range.to>=bars.length-1;
+  view.follow=follow;
+  try {localStorage.setItem(storageKey,JSON.stringify(view));} catch (_) {}
+}
+function zoom(factor) {
+  const range=chart.timeScale().getVisibleLogicalRange();
+  if (!range) return;
+  const center=(range.from+range.to)/2,half=Math.max(5,(range.to-range.from)*factor/2);
+  chart.timeScale().setVisibleLogicalRange({from:center-half,to:center+half});
+  remember();
+}
+document.getElementById('in').onclick=()=>zoom(0.75);
+document.getElementById('out').onclick=()=>zoom(1.333333);
+document.getElementById('fit').onclick=()=>{chart.timeScale().fitContent();remember();};
+document.getElementById('live').onclick=()=>{
+  follow=true;
+  const view=snapshot();
+  if (view) {view.follow=true;restore(view);remember();}
+};
+window.addEventListener('message',event=>{
+  if (event.source!==window.parent || event.data.type!=='streamlit:render') return;
+  const args=event.data.args;
+  const height=args.height || 620;
+  send('streamlit:setFrameHeight',{height});
+  const summary=document.getElementById('summary');
+  summary.replaceChildren();
+  (args.metrics || []).forEach(([label,value,hint,color])=>{
+    const item=document.createElement('span');item.title=hint;item.textContent=label;
+    const number=document.createElement('b');number.textContent=value;if(color) number.style.color=color;
+    item.appendChild(number);summary.appendChild(item);
+  });
+  summary.style.display=args.metrics && args.metrics.length?'flex':'none';
+  chartHeight=height;
+  layoutPanes();
+  document.getElementById('title').textContent=args.symbol.replace('=F','')+' · '+(args.candle_label || '1 min')+' · CT';
+  document.getElementById('fit').textContent=args.range_label || '48H';
+  if (!window.LightweightCharts) {
+    document.getElementById('title').textContent='Chart library unavailable. Reload to retry.';
+    send('streamlit:setFrameHeight',{height:height});return;
+  }
+  let view=snapshot();
+  updating=true;
+  if (!chart) {
+    storageKey='goxtrade-chart-v2:'+args.symbol+':'+(args.timeframe || '1min');
+    chart=LightweightCharts.createChart(document.getElementById('chart'),{
+      autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#d6dce5'},
+      grid:{vertLines:{color:'#1f2630'},horzLines:{color:'#1f2630'}},
+      timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8,
+        tickMarkFormatter:(time,type)=>type<=2?dateFormat.format(new Date(time*1000)):timeFormat.format(new Date(time*1000))},
+      localization:{timeFormatter:time=>dateFormat.format(new Date(time*1000))+' '+timeFormat.format(new Date(time*1000))+' CT'},
+      handleScroll:{mouseWheel:true,pressedMouseMove:true,horzTouchDrag:true,vertTouchDrag:false},
+      handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:true},
+      crosshair:{mode:LightweightCharts.CrosshairMode.Normal}
+    });
+    series=chart.addCandlestickSeries({upColor:'#0ba58e',downColor:'#f23645',wickUpColor:'#0ba58e',wickDownColor:'#f23645',borderVisible:false,
+      priceFormat:{type:'price',precision:args.symbol==='YM=F'?0:2,minMove:args.symbol==='YM=F'?1:0.25}});
+    ema20Series=chart.addLineSeries({color:'#429b44',lineWidth:1,priceLineVisible:false,visible:false});
+    ema50Series=chart.addLineSeries({color:'#e54550',lineWidth:1,priceLineVisible:false,visible:false});
+    series.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.08},minimumWidth:80});
+    chart.timeScale().applyOptions({visible:false});
+    const indicatorOptions={autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#aab3c0'},
+      grid:{vertLines:{color:'#1f2630'},horzLines:{visible:false}},
+      rightPriceScale:{minimumWidth:80,borderVisible:false},
+      timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8,
+        tickMarkFormatter:(time,type)=>type<=2?dateFormat.format(new Date(time*1000)):timeFormat.format(new Date(time*1000))},
+      localization:{timeFormatter:time=>timeFormat.format(new Date(time*1000))+' CT'},
+      handleScale:{mouseWheel:true,pinch:true,axisPressedMouseMove:false}};
+    volumeChart=LightweightCharts.createChart(document.getElementById('volume'),indicatorOptions);
+    volumeChart.timeScale().applyOptions({visible:false});
+    volumeSeries=volumeChart.addHistogramSeries({priceFormat:{type:'volume'},priceLineVisible:false,lastValueVisible:false});
+    volumeSeries.priceScale().applyOptions({scaleMargins:{top:0.3,bottom:0}});
+    rsiChart=LightweightCharts.createChart(document.getElementById('rsi'),indicatorOptions);
+    rsiSeries=rsiChart.addLineSeries({color:'#bc67cf',lineWidth:1,priceLineVisible:false,
+      priceFormat:{type:'price',precision:1,minMove:0.1},autoscaleInfoProvider:()=>({priceRange:{minValue:0,maxValue:100}})});
+    rsiSeries.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.08}});
+    [30,70].forEach(price=>rsiSeries.createPriceLine({price,color:'#677589',lineWidth:1,lineStyle:2,axisLabelVisible:true}));
+    rsiSeries.createPriceLine({price:50,color:'#3b4350',lineWidth:1,lineStyle:2,axisLabelVisible:false});
+    const panes=[chart,volumeChart,rsiChart];
+    panes.forEach(source=>source.timeScale().subscribeVisibleLogicalRangeChange(range=>{
+      if(syncing || !range) return;
+      syncing=true;
+      panes.filter(p=>p!==source).forEach(p=>p.timeScale().setVisibleLogicalRange(range));
+      syncing=false;
+    }));
+    try {view=JSON.parse(localStorage.getItem(storageKey));} catch (_) {}
+    if (view && (!view.range || !Number.isFinite(view.range.from) || !Number.isFinite(view.range.to))) view=null;
+    chart.timeScale().subscribeVisibleLogicalRangeChange(remember);
+    panes.forEach(pane=>pane.subscribeCrosshairMove(event=>legend(bars.find(bar=>bar.time===event.time)||bars[bars.length-1])));
+    layoutPanes();
+  }
+  const next=args.points;
+  // Updating the live bar preserves both the time view and manual price scaling.
+  const samePrefix=bars.length && next.length>=bars.length && next.length<=bars.length+1 &&
+    bars.every((b,i)=>i===bars.length-1 || (next[i].time===b.time && next[i].open===b.open && next[i].high===b.high && next[i].low===b.low && next[i].close===b.close && next[i].volume===b.volume));
+  if (samePrefix && next[bars.length-1].time===bars[bars.length-1].time) {
+    series.update(next[bars.length-1]);
+    volumeSeries.update(volumePoint(next[bars.length-1]));
+    if (next.length>bars.length) {series.update(next[next.length-1]);volumeSeries.update(volumePoint(next[next.length-1]));}
+  } else {series.setData(next);volumeSeries.setData(next.map(volumePoint));}
+  rsiSeries.setData(next.map(rsiPoint));
+  ema20Series.setData(next.map(bar=>bar.ema20==null?{time:bar.time}:{time:bar.time,value:bar.ema20}));
+  ema50Series.setData(next.map(bar=>bar.ema50==null?{time:bar.time}:{time:bar.time,value:bar.ema50}));
+  legend(next[next.length-1]);
+  bars=next;
+  if (view) {follow=view.follow;restore(view);}
+  else if (bars.length) chart.timeScale().setVisibleLogicalRange({from:Math.max(-1,bars.length-100),to:bars.length+4});
+  updating=false;
+  remember();
+  send('streamlit:setFrameHeight',{height:height});
+});
+send('streamlit:componentReady',{apiVersion:1});
+new ResizeObserver(()=>layoutPanes()).observe(document.getElementById('summary'));
+</script></body></html>
