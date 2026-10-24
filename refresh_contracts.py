@@ -5,10 +5,10 @@ from projectx_client import login, search_contracts
 from symbol_store import load_symbols
 
 
-def refresh_active_contracts() -> list[dict]:
+def refresh_active_contracts(symbols=None) -> list[dict]:
     token = login()
     updates = []
-    for symbol in load_symbols():
+    for symbol in load_symbols() if symbols is None else symbols:
         search_text = contract_search_text(symbol)
         expected = expected_symbol_id(symbol)
         contracts = search_contracts(search_text, live=False, token=token)

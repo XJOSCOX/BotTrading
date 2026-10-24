@@ -72,7 +72,7 @@ class OperationsTests(unittest.TestCase):
     def test_unowned_stop_does_not_count_as_protection(self):
         e.control(dict(enabled=False))
         e.claim(dict(alert_id=1,state="Open",symbol="MNQ",contract_id="MNQ",order_id=5,quantity=1,side=0,sent_at=0))
-        with patch.object(e,"verify_account",return_value={"balance":1000}), patch.object(e,"account_state",return_value=([dict(contractId="MNQ",size=1,type=1,averagePrice=100)],[dict(contractId="MNQ",parentOrderId=99,type=4,side=1,size=1)])), patch.object(e,"alert_history",return_value=[]), patch.object(e,"call") as api:
+        with patch.object(e,"verify_account",return_value={"balance":1000}), patch.object(e,"account_state",return_value=([dict(contractId="MNQ",size=1,type=1,averagePrice=100)],[dict(contractId="MNQ",parentOrderId=99,type=4,side=1,size=1)])), patch.object(e,"alert_history",return_value=[]), patch("trading_schedule.execution_schedule",return_value={"allow_entry": True, "flatten": False}), patch.object(e,"call") as api:
             e.cycle("test")
         self.assertEqual(api.call_args[0][0],"/api/Position/closeContract")
         self.assertEqual(e.snapshot()[2][0]["close_reason"],"Missing verified broker stop")

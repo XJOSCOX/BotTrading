@@ -174,7 +174,7 @@ def replay():
     import bot_replay
     from dashboard_view import statistics
     st.subheader("Replay lab")
-    st.caption("Offline only / Saved 1-minute candles / No orders or changes to running strategies")
+    st.caption("Legacy 1-minute research rules / Not the current 15-minute live strategy / No orders")
     with st.form("replay_configuration"):
         a,b,c = st.columns(3)
         symbol = a.selectbox("Instrument",["NQ=F","ES=F","YM=F"],format_func=lambda s:{"NQ=F":"MNQ","ES=F":"MES","YM=F":"MYM"}[s])

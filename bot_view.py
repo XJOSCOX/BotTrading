@@ -219,7 +219,7 @@ def strategy_matrix(symbols, results, prices, healthy, market_open, history=(), 
     for name in STRATEGIES:
         reference = next((results[(s,name)] for s in symbols if (s,name) in results), {})
         label = reference.get("focus_label",name)
-        interval = reference.get("timeframe","15 min" if name == "CRT" else "1 min")
+        interval = reference.get("timeframe","15 min")
         cells = []
         for symbol in symbols:
             result = results.get((symbol,name),{})
@@ -258,7 +258,7 @@ def symbol_monitor(symbol, results, tick, healthy, market_open, history=(), jobs
     rows = []
     for name in STRATEGIES:
         result = results.get((symbol, name), {})
-        interval = result.get("timeframe", "15 min" if name == "CRT" else "1 min")
+        interval = result.get("timeframe", "15 min")
         signal = result.get("signal", {})
         state = monitor_signal_label(symbol, name, signal, history, jobs or {}) if healthy else "OFFLINE"
         if healthy and market_open and feed != "Live":
@@ -316,6 +316,8 @@ def history_card(row, tick=None, market_open=True, job=None, result=None, decisi
     if adaptive and not trade_closed:
         management_html = f'<div class="gx-evidence"><b>Adaptive exit / {int(row.get("management_minutes",1))}m structure</b><p>Original stop {price(row.get("initial_stop"))} / {"Reference target reached; no automatic exit" if row.get("target_reached") else "Reference target does not close the signal"}.</p><p>{escape(row.get("exit_evidence", "Waiting for completed candles after entry."))}</p></div>'
     evidence = escape(row.get("trigger_detail") or row.get("reason") or "")
+    if job and job.get("entry_confirmation"):
+        evidence += "<br><b>Entry confirmation</b><br>" + escape(job["entry_confirmation"])
     decision_html = ""
     if not job or job.get("state") == "Rejected":
         if job and job.get("error_message"):

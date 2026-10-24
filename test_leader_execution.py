@@ -24,6 +24,8 @@ from unittest.mock import patch
 import live_store
 live_store.DB_PATH = Path(sys.argv[1])
 import practice_executor as e
+import overnight_policy
+overnight_policy.overnight = lambda now=None: False
 import practice_safety as safety
 import bot_audit
 import bot_health

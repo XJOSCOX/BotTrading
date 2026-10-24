@@ -1,5 +1,19 @@
 # Bot operations
 
+## Background app
+
+Double-click `GoXTrade.cmd` and choose Start or Stop. Start restores any missing Streamlit,
+feed/monitor and Leader worker processes independently of Chrome. It does not
+enable trading. The full-stop action pauses new entries, then requires all bot
+jobs resolved and both Topstep accounts verified flat. If broker login fails or
+open exposure is present, exit monitoring remains on. There is no automatic
+Windows restart task. The dashboard is at `http://localhost:8502`. Launcher
+events are saved in `data/logs/launcher.log`.
+
+The feed now retries failed contract discovery as well as failed hub connections.
+It reloads `.env` on each attempt, so a repaired API key can take effect on the
+next retry. An invalid Topstep key still prevents fresh quotes and entries.
+
 ## Execution
 
 - Practice and the allowlisted Trading Combine leader use separate, fixed-account worker processes configured locally in `execution_target.py`. No follower routing is performed by this app.
@@ -19,6 +33,10 @@
 
 ## Audit and notifications
 
+Clear watch-only alerts dismisses active signals unless an account has an open, pending, uncertain, or otherwise unresolved order for them. Closed and rejected jobs do not block clearing. Their job records, fills and P&L remain unchanged. Clearing keeps signal history and releases the monitor for the next distinct setup. It does not close trades or replay the cleared setup. Clearing and order claims are serialized in the database to prevent a cleared watch signal racing an entry.
+
+Topstep execution blocks new entries at 14:50 CT and requests bot-owned position closure from 15:05 CT, ahead of the 15:10 deadline. Known pending bot entries are cancelled; uncertain outcomes and unowned exposure require manual review. Broker flat confirmation requires no positions, orders or unresolved jobs. The schedule also applies while manually paused, never automatically unpauses, and permits entries again at 17:00 CT (Sunday reopening after Friday). Software cannot guarantee timely flattening during API outages; monitor broker exposure. Holiday early closes are not currently encoded and require manual scheduling/pausing.
+
 New events persist in `bot_events`, with consecutive duplicate events suppressed per topic. The inbox is in-app only and survives navigation and restarts. No email, SMS, push, webhook, or external recipient is configured.
 
 Trade review combines existing order-state records and new signal/decision events. Signal trail changes are software exit levels, not broker-stop amendments. Fill observation delay measures when the worker observed a fill, not the exchange's exact execution latency. Historical audit details cannot be reconstructed where they were never recorded.
@@ -27,11 +45,13 @@ Trade review combines existing order-state records and new signal/decision event
 
 New setups use the shared Stop & trailing candles setting (5 minutes by default; 5/10/15 available). Initial stops use the more conservative of strategy invalidation and the last three completed management candles' swing, plus 0.5 ATR(14), with at least one ATR of distance. Fifteen contiguous completed management candles are required; missing buckets block a new setup. Trailing and two-confirmation structure exits use the same frozen timeframe. Price crossing a protective stop is still checked tick-by-tick. Existing signals without a saved timeframe retain their original one-minute management; settings never widen their stops. Wider initial stops increase dollar risk at unchanged quantity. The separate account loss lock is unchanged.
 
+All new strategy signals use completed, gap-checked 15-minute candles: CRT range/sweep, Reversal RSI14, ORB confirmation, VWAP retests and EMA20/50/RSI14. The forming candle contributes no confirmation; live quotes remain available for entry validity and exits. Reversal extreme duration is counted in minutes (each completed 15-minute bar represents 15 minutes). Existing active signals retain their saved levels and exit rules.
+
 The monitor evaluates CRT, Reversal, ORB, VWAP Reclaim and EMA Pullback for NQ, ES and YM. New strategies are not automatically selected for account orders. Enable them separately in Leader settings or Practice execution controls. Existing account selections, micro sizing, exposure checks, cooldowns and the account loss lock still apply.
 
-- ORB: shared opening-range setting of 5, 15 (default), or 30 minutes from 08:30 CT. Requires complete opening-range data, then two consecutive completed one-minute closes at least one tick beyond the range following a close inside that boundary. Entries are limited to weekdays before 15:00 CT, subject to the existing market/session gate. Range width provides a reference target.
-- VWAP Reclaim: HLC3 weighted by actual per-minute trade volume, anchored at 17:00 CT. Requires complete minute coverage from the anchor and at least 52 completed session minutes. EMA20/50 alignment and EMA50 slope must agree. A completed candle must retest VWAP within max(one tick, 0.15 ATR), close away from it with a directional body, and follow a close on the same side. A preceding cross identifies a reclaim; otherwise this is rejection. Missing session data or invalid volume yields WAIT.
-- EMA Pullback: at least 60 consecutive completed minutes. EMA20/50 alignment and EMA50 slope establish direction. One of the previous three candles must touch EMA20 or EMA50 within max(one tick, 0.15 ATR). RSI14 must cross 50 in the trend direction, with the confirmation candle closing beyond the previous high/low and EMA20, and a directional body.
+- ORB: shared opening-range setting of 5, 15 (default), or 30 minutes from 08:30 CT. Requires complete opening-range data, then two consecutive completed 15-minute closes at least one tick beyond the range following a close inside that boundary. Entries are limited to weekdays before 15:00 CT, subject to the existing market/session gate. Range width provides a reference target.
+- VWAP Reclaim: 15-minute HLC3 weighted by summed trade volume, anchored at 17:00 CT. Requires complete minute coverage from the anchor and at least 52 completed 15-minute session candles (13 hours). EMA20/50 alignment and EMA50 slope must agree. A completed candle must retest VWAP within max(one tick, 0.15 ATR), close away from it with a directional body, and follow a close on the same side. A preceding cross identifies a reclaim; otherwise this is rejection. Missing session data or invalid volume yields WAIT.
+- EMA Pullback: at least 60 consecutive completed 15-minute candles (15 hours). EMA20/50 alignment and EMA50 slope establish direction. One of the previous three candles must touch EMA20 or EMA50 within max(one tick, 0.15 ATR). RSI14 must cross 50 in the trend direction, with the confirmation candle closing beyond the previous high/low and EMA20, and a directional body.
 
 Signals use completed candles and a fresh live price; forming candles cannot confirm entries. Stops start beyond the setup's candle/range invalidation and use the existing ATR buffer and adaptive exit manager. VWAP/EMA reference targets are twice the initial unbuffered risk; reference targets do not force closure. These are deterministic initial rules, not evidence of profitability. Replay currently supports CRT and Reversal only.
 
@@ -39,7 +59,7 @@ Method references: [VWAP](https://www.tradingview.com/support/solutions/43000502
 
 ## Replay lab
 
-Replay reads already-saved complete minute candles. It does not call the broker, mutate live signals, or apply changes to execution settings. Saved comparisons live in `bot_replays`.
+Replay is a legacy one-minute research comparison, not a simulation of the current 15-minute live strategy rules. Replay reads already-saved complete minute candles. It does not call the broker, mutate live signals, or apply changes to execution settings. Saved comparisons live in `bot_replays`.
 
 - Baseline: existing buffered stop and three-bar/two-break/1.5R management.
 - CRT candidate: five-bar/two-break/2R management.
@@ -59,3 +79,84 @@ Candidates and filters are research-only. No promotion control is provided. The 
 `python test_bot_workspace_browser.py` tests navigation and the replay flow headlessly; it does not press execution controls.
 
 `python test_leader_browser.py` checks leader sizing, disabled Start and account views without placing orders.
+# Overnight Entry Guard
+
+## Multi-Timeframe Entry Confirmation
+
+New entries require a current 15m setup, a completed 5m candle whose body and
+close-to-close movement support the signal, and a new completed 1m candle after
+the setup close. The 1m candle must close beyond the prior candle's high/low, in
+the directional outer third of its range, with live price still beyond that close.
+The entry window expires five minutes after the 15m setup closes. Invalidation
+breaches, an already reached reference target, or drift beyond 0.5 of the original
+entry-to-invalidation distance cancel eligibility. Cancellations are persisted per
+account profile and alert. Missing/stale data waits, never confirms.
+
+Confirmation is rerun before submission; protective bracket distance is recalculated
+from the confirmed live reference price to the unchanged strategy stop. Actual
+broker fills remain authoritative. Audit records and alert evidence retain the
+confirmation. Existing open positions retain their exit management and stops;
+this change adds 1m/5m entry timing, not a new 1m exit rule. These explicit rules
+require forward evaluation and do not establish improved profitability.
+
+## Reactive Volatility Guard (All Sessions)
+
+Both accounts check market conditions before creating an entry and again before
+submission. A latest/forming 1m true range or live index move above 3x the preceding
+14-minute mean true range, a completed 15m true range above 2.5x the preceding
+14-bar mean, or a micro spread above four ticks blocks entry. Range baselines
+have a four-tick floor. Overnight's stricter two-tick spread cap still applies.
+Each detected shock saves a per-symbol five-minute hold shared by both profiles;
+continued shocks extend it. Normal conditions and a fresh eligible signal are
+required afterward; expired signals are never queued for delayed entry.
+Fresh two-sided micro quotes, a fresh index quote, current complete minute history
+and enough completed 15m history are required. Missing data blocks entries.
+Reasons appear in entry decisions. Existing stops, position management, manual
+pause, loss locks and session cutoffs remain unchanged. This is a reactive check
+at entry time, not continuous news detection or a scheduled economic calendar;
+it cannot prevent a release or spike that starts after submission. Thresholds
+are starting safeguards, not validated profitability claims.
+
+From 17:00 to 08:30 Chicago time, both execution profiles require one enabled
+strategy on the current completed 15-minute candle, a matching
+EMA20/50 trend and EMA50 slope, and candle volume at least the median of the
+previous 20 candles. Trend confirmation requires 52 completed candles; scheduled
+market closures may be bridged, but missing open-market candles still block entry.
+Conflicting active enabled strategies remain blocked. A second agreeing strategy
+is no longer required (revised after the September 23 overnight block review).
+The actual micro contract must have fresh bid/ask timestamps (at most 10 seconds),
+valid tick-aligned prices and a spread no wider than two ticks.
+
+Overnight entries are limited to one micro contract and one position at a time,
+with a minimum 15-minute post-close cooldown. These checks run again before order
+submission. Block reasons are recorded in the existing alert decision history.
+Regular-session sizing, strategy stops, exit management, manual pause and account
+loss locks remain unchanged. These starting thresholds require forward testing;
+they do not establish a higher win rate or guarantee profitability.
+
+## Delayed Monitoring Diagnosis
+
+Practice entry confirmation update (October 9, 2026): the entry window is ten
+minutes after the 15m setup closes, allowing evaluation of a post-setup 5m close.
+Price outside the existing 0.5-setup-risk distance is Waiting, not a permanent
+cancellation; it must return inside the same limit and pass all candle and live
+price checks before entry. Invalidation, target and expiry cancellations remain.
+Previously cancelled alerts are not reset. Leader retains its five-minute window
+and durable price-distance cancellations. This is a Practice timing experiment,
+not evidence of improved profitability. Expiry and stale-feed block messages are
+reported separately.
+
+Fresh feed ticks do not prove that strategy evaluations are current. On October 8,
+2026 a monitor cycle took 127 seconds, almost entirely opening/reading SQLite.
+The WAL was about 12 GB and checkpointing the original file failed with
+SQLITE_IOERR_WRITE despite available disk space. A separate database-plus-WAL
+copy checkpointed successfully. Never delete a WAL to clear this condition:
+it may contain committed orders, fills, alerts and safety settings.
+
+Pause entries and verify broker positions and orders before stopping workers for
+database maintenance. Preserve the database and WAL together while all database
+processes are stopped; checkpoint and integrity-check a recovery copy before use.
+Restart monitoring with entries paused and verify all strategy/symbol timestamps
+and feed freshness before manually resuming. Existing database connections no
+longer run core schema creation, and each evaluation refreshes its latest tick
+after loading candle history. Stale-data entry guards remain in place.

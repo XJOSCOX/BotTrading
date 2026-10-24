@@ -15,6 +15,7 @@ from tick_buffer import TickBuffer, event_age
 from market_session import market_session
 from projectx_client import login, market_hub_url
 from refresh_contracts import refresh_active_contracts
+from overnight_policy import MICRO_SYMBOLS
 from symbol_store import load_symbols
 
 
@@ -121,14 +122,19 @@ def main() -> None:
         conn.execute("PRAGMA journal_mode=WAL")
     Thread(target=run_monitor, name="strategy-monitor", daemon=True).start()
     Thread(target=run_practice, name="practice-executor", daemon=True).start()
-    refresh_active_contracts()
-    subscriptions = symbols_with_contracts(list(dict.fromkeys([*load_symbols(), *SYMBOLS])))
-    if not subscriptions:
-        raise RuntimeError("No saved symbols have contract IDs.")
+    feed_symbols = list(dict.fromkeys([*load_symbols(), *SYMBOLS, *MICRO_SYMBOLS]))
     delay = 30
     while True:
         started = time.monotonic()
         try:
+            # Reload a repaired API key without requiring a browser or worker restart.
+            from dotenv import load_dotenv
+            from projectx_client import ENV_PATH
+            load_dotenv(ENV_PATH, override=True)
+            refresh_active_contracts(feed_symbols)
+            subscriptions = symbols_with_contracts(feed_symbols)
+            if not subscriptions:
+                raise RuntimeError("No saved symbols have contract IDs.")
             run_connection(subscriptions)
         except Exception as error:
             logging.warning("Market connection failed (%s)", type(error).__name__)

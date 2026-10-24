@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
 LOG_DIR = DATA_DIR / "logs"
 PID_FILE = DATA_DIR / "live_market.pid"
+DISABLED_FILE = DATA_DIR / "live_market.disabled"
 OUT_LOG = LOG_DIR / "live_market.out.log"
 ERR_LOG = LOG_DIR / "live_market.err.log"
 
@@ -85,11 +86,14 @@ def start() -> dict:
         stderr.close()
     payload = {"pid": process.pid, "started_at": datetime.now().isoformat(timespec="seconds")}
     PID_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    DISABLED_FILE.unlink(missing_ok=True)
     return {**status(), "message": "Live feed started."}
 
 
 def stop() -> dict:
     current = status()
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    DISABLED_FILE.write_text("Stopped by user\n", encoding="utf-8")
     pid = current.get("pid")
     if not current["running"] or not pid:
         return {**current, "message": "Live feed is not running."}

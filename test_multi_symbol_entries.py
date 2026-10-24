@@ -29,6 +29,11 @@ class MultiSymbolTests(unittest.TestCase):
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
+        self.stack.enter_context(patch("entry_confirmation.window_open", return_value=True))
+        self.stack.enter_context(patch("entry_confirmation.check", side_effect=lambda signal: dict(state="Confirmed",reason="Test confirmation",price=signal["entry"])))
+        self.stack.enter_context(patch("volatility_guard.entry_block", return_value=None))
+        self.stack.enter_context(patch("overnight_policy.overnight", return_value=False))
+        self.stack.enter_context(patch("trading_schedule.execution_schedule",return_value=dict(allow_entry=True,flatten=False,reason="Open")))
         folder = self.stack.enter_context(tempfile.TemporaryDirectory())
         self.stack.enter_context(patch.object(live_store,"DB_PATH",Path(folder)/"db"))
         e.control(dict(enabled=True,after_id=0,enable_mym=True,quantities=dict(MNQ=3,MES=3,MYM=3)))
@@ -102,11 +107,22 @@ class MultiSymbolTests(unittest.TestCase):
         api = self.stack.enter_context(patch.object(e,"call",return_value=dict(success=True)))
         e.cycle("test")
         self.assertEqual(api.call_count,3)
+
         self.assertEqual({c.args[1]["contractId"] for c in api.call_args_list},{j["contract_id"] for j in active})
         self.assertTrue(all(j["state"]=="Closing" for j in e.snapshot()[2]))
         e.cycle("test")
         self.assertEqual(api.call_count,3)
 
+    def test_scheduled_flatten_while_paused_manages_all_positions(self):
+        active = [job(1,"MNQ",2),job(2,"MES")]
+        self.cycle_mocks(active,[])
+        e.pause()
+        with patch("trading_schedule.execution_schedule",return_value=dict(allow_entry=False,flatten=True,reason="Scheduled flat")), patch.object(e,"call",return_value=dict(success=True)) as api:
+            e.cycle("test")
+            self.assertEqual(api.call_count,2)
+            self.assertTrue(all(j["state"]=="Closing" for j in e.snapshot()[2]))
+            e.cycle("test")
+            self.assertEqual(api.call_count,2)
     def test_unknown_job_does_not_starve_other_exit_management(self):
         a,b = job(1,"MNQ",2),job(2,"MES")
         self.cycle_mocks([a,b],[])

@@ -12,6 +12,7 @@ CONTRACT_RE = re.compile(r"^CON\.F\.US\.[A-Z0-9]+\.[FGHJKMNQUVXZ]\d{2}$")
 DEFAULT_CONTRACTS = {
     "MNQ=F": "CON.F.US.MNQ.Z26",
     "MES=F": "CON.F.US.MES.Z26",
+    "MYM=F": "CON.F.US.MYM.Z26",
     "NQ=F": "CON.F.US.ENQ.Z26",
     "ES=F": "CON.F.US.EP.Z26",
     "YM=F": "CON.F.US.YM.Z26",
@@ -75,6 +76,7 @@ def expected_symbol_id(symbol: str) -> str | None:
     mapping = {
         "MNQ": "F.US.MNQ",
         "MES": "F.US.MES",
+        "MYM": "F.US.MYM",
         "NQ": "F.US.ENQ",
         "ES": "F.US.EP",
         "YM": "F.US.YM",

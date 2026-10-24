@@ -1,6 +1,6 @@
 import math
 
-TICK_SIZES = {"NQ=F": .25, "ES=F": .25, "YM=F": 1.0, "MNQ=F": .25, "MES=F": .25}
+TICK_SIZES = {"NQ=F": .25, "ES=F": .25, "YM=F": 1.0, "MNQ=F": .25, "MES=F": .25, "MYM=F": 1.0}
 
 
 def valid_price(symbol, value):

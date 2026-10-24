@@ -21,7 +21,10 @@ def connect() -> sqlite3.Connection:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
-    init_db(conn)
+    # Existing readers must not compete for a schema write lock with the tick writer.
+    tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('live_ticks','latest_quotes')")}
+    if tables != {"live_ticks", "latest_quotes"}:
+        init_db(conn)
     return conn
 
 

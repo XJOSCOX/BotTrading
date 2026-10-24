@@ -34,7 +34,7 @@ class LiveAccountsTests(unittest.TestCase):
 
     def test_page_defaults_and_save(self):
         from streamlit.testing.v1 import AppTest
-        with tempfile.TemporaryDirectory() as folder, patch("practice_history.ensure_worker"), patch.object(live_accounts, "SETTINGS", Path(folder)/"settings.json"), patch("live_page.credentials_present", return_value=True), patch(
+        with tempfile.TemporaryDirectory() as folder, patch("live_store.DB_PATH", Path(folder)/"test.db"), patch("leader_execution.start_worker"), patch("practice_history.ensure_worker"), patch.object(live_accounts, "SETTINGS", Path(folder)/"settings.json"), patch("live_page.credentials_present", return_value=True), patch(
             "live_page.search_accounts", return_value=[dict(id=123,name="Test",balance=50000,canTrade=True,simulated=True)]
         ):
             app = AppTest.from_file("app.py")

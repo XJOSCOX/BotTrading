@@ -16,6 +16,9 @@ from market_session import market_session
 import practice_safety
 import bot_audit
 import bot_controls
+import overnight_policy
+import volatility_guard
+import entry_confirmation
 import bot_health
 from execution_target import PROFILE, TARGET, assert_other_idle
 
@@ -89,8 +92,14 @@ def claim(job):
     with closing(db()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         assert_other_idle(conn)
+        if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
+            signal = conn.execute("SELECT record FROM bot_alert_history WHERE id=?",(job["alert_id"],)).fetchone()
+            if signal and json.loads(signal[0]).get("status") != "Active":
+                return False
         active = [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {PROFILE}_jobs")]
         active = [j for j in active if j["state"] not in ("Closed", "Rejected")]
+        if overnight_policy.overnight() and (active or job.get("quantity",1)!=1):
+            return False
         if active:
             if (len(active) >= 3 or job.get("quantity") != 1
                     or job.get("symbol") not in ("MNQ", "MES", "MYM")):
@@ -336,6 +345,7 @@ def cleanup_stop(job, token):
 
 
 def cycle(token):
+    from trading_schedule import execution_schedule
     settings, _, jobs = snapshot()
     unresolved = [j for j in jobs if j["state"] not in ("Closed", "Rejected")]
     account = verify_account(token)
@@ -372,8 +382,9 @@ def cycle(token):
                             and o.get("parentOrderId") == job["order_id"] for o in working)
             signal = history.get(job["alert_id"])
             risk_stop = gate["locked"]
-            if (not protected and time.time() - job["sent_at"] > 15) or (signal and signal["status"] == "Closed") or risk_stop or settings.get("emergency_close"):
-                job["close_reason"] = ("User emergency close" if settings.get("emergency_close") else "$500 account loss lock" if risk_stop else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
+            scheduled_exit = execution_schedule()["flatten"]
+            if (not protected and time.time() - job["sent_at"] > 15) or (signal and signal["status"] == "Closed") or risk_stop or settings.get("emergency_close") or scheduled_exit:
+                job["close_reason"] = ("User emergency close" if settings.get("emergency_close") else "$500 account loss lock" if risk_stop else "Scheduled 15:05 CT flatten" if scheduled_exit else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
                 bot_audit.emit(f"job:{job['alert_id']}:exit", "Exit decision", job["close_reason"], job["alert_id"], severity="warning" if risk_stop or not protected else "info", notify=True)
                 job["close_time"] = time.time()
                 close_job(job, token)
@@ -383,6 +394,14 @@ def cycle(token):
                 continue
             job.update(state="Open", fill_price=position.get("averagePrice"), protected=protected)
             save_job(job)
+        elif execution_schedule()["flatten"] and job["state"] == "Submitted" and any(o.get("id") == job.get("order_id") for o in working):
+            # Cancel only the known entry; a racing fill is reconciled next cycle.
+            if not job.get("session_cancel_requested"):
+                job["session_cancel_requested"] = True
+                save_job(job)
+                call("/api/Order/cancel", {"accountId": ACCOUNT_ID,"orderId":job["order_id"]},token)
+            status("Scheduled entry cancellation pending broker reconciliation")
+            continue
         elif time.time() - job["sent_at"] > 30:
             if working:
                 if job["state"] in ("Open", "Closing") and cleanup_stop(job, token):
@@ -400,6 +419,18 @@ def cycle(token):
             job.update(state="Closed", closed_confirmed_at=datetime.now(timezone.utc).isoformat())
             save_job(job)
     settings, _, jobs = snapshot()
+    schedule = execution_schedule()
+    if not schedule["allow_entry"]:
+        pending = bool(positions or orders or any(j["state"] not in ("Closed","Rejected") for j in jobs))
+        message = schedule["reason"]
+        if schedule["flatten"]:
+            message += " / Exposure unresolved; verify broker" if pending else " / Broker flat confirmed"
+            bot_audit.emit("session:flat", "Scheduled flatten",message,severity="warning" if pending else "info",notify=pending)
+        status(message)
+        for signal in history.values():
+            if signal["status"] == "Active":
+                bot_audit.emit(f"decision:{signal['id']}","Entry blocked",message,signal["id"])
+        return
     if settings.get("emergency_close"):
         if not positions and not orders and not any(j["state"] not in ("Closed", "Rejected") for j in jobs):
             update_settings(emergency_close=False)
@@ -417,7 +448,7 @@ def cycle(token):
     if not market_session()["is_open"]:
         status("Waiting for market session")
         return
-    waiting = entry_wait(positions, orders, jobs, cooldown_seconds=bot_controls.read()["cooldown_minutes"]*60)
+    waiting = entry_wait(positions, orders, jobs, cooldown_seconds=overnight_policy.cooldown_seconds(bot_controls.read()["cooldown_minutes"]*60))
     if waiting:
         status(waiting)
         seen = {j["alert_id"] for j in jobs}
@@ -440,8 +471,15 @@ def cycle(token):
         entered = datetime.fromisoformat(signal.get("entry_time") or signal["observed_at"])
         age = (datetime.now(timezone.utc) - entered).total_seconds()
         result = results.get((signal["symbol"], signal["strategy"]), {})
-        if not 0 <= age <= 15 or not quote_fresh(result, datetime.now(timezone.utc)):
-            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", "Signal expired or feed/monitor stale", signal["id"])
+        if not entry_confirmation.window_open(signal):
+            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", "Setup entry window expired or not yet open", signal["id"])
+            continue
+        if not quote_fresh(result, datetime.now(timezone.utc)):
+            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", "Feed or strategy monitor stale", signal["id"])
+            continue
+        confirmation = entry_confirmation.check(signal)
+        if confirmation["state"] != "Confirmed":
+            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", f"{confirmation['state']}: {confirmation['reason']}", signal["id"])
             continue
         # Conflicting active strategies on the same index do not produce an order.
         if any(r["status"] == "Active" and r["symbol"] == signal["symbol"] and r["signal"] != signal["signal"]
@@ -450,7 +488,7 @@ def cycle(token):
             continue
         micro, symbol_id, _, _ = MICROS[signal["symbol"]]
         side = 0 if signal["signal"] == "LONG" else 1
-        waiting = entry_wait(positions, orders, jobs, symbol=micro, cooldown_seconds=bot_controls.read()["cooldown_minutes"]*60)
+        waiting = entry_wait(positions, orders, jobs, symbol=micro, cooldown_seconds=overnight_policy.cooldown_seconds(bot_controls.read()["cooldown_minutes"]*60))
         if waiting:
             bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", waiting, signal["id"])
             continue
@@ -463,17 +501,26 @@ def cycle(token):
         if len(matches) != 1:
             raise RuntimeError("Active micro contract could not be uniquely resolved")
         contract = matches[0]
+        blocked = volatility_guard.entry_block(signal, contract["id"])
+        if blocked:
+            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
+            continue
+        enabled = {r["strategy"] for r in history.values() if bot_controls.enabled(signal["symbol"], r["strategy"])}
+        blocked = overnight_policy.entry_block(signal, history.values(), enabled, positions, orders, jobs, contract["id"])
+        if blocked:
+            bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
+            continue
         if any(p["contractId"] == contract["id"] for p in positions) or any(o["contractId"] == contract["id"] for o in orders):
             continue
         try:
-            payload = build_order(signal, contract, entry_quantity(settings["quantities"][micro], positions, jobs))
+            payload = build_order({**signal,"entry":confirmation["price"]}, contract, overnight_policy.quantity(entry_quantity(settings["quantities"][micro], positions, jobs)))
         except ValueError as error:
             status(f"Signal skipped: {error}")
             continue
         job = dict(alert_id=signal["id"], symbol=micro, contract_id=contract["id"], quantity=payload["size"],
-                   signal_entry=signal["entry"],
+                   signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
-                   sizing_reason="Additional symbol: capped at 1 contract" if positions else "First position: selected quantity",
+                   sizing_reason="Overnight: capped at 1 contract" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
                    side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"])
         if not claim(job):
             continue
@@ -485,12 +532,12 @@ def cycle(token):
                 return
             fresh_positions, fresh_orders = account_state(token)
             fresh_jobs = snapshot()[2]
-            waiting = entry_wait(fresh_positions, fresh_orders, fresh_jobs, own_alert=job["alert_id"], symbol=micro, cooldown_seconds=bot_controls.read()["cooldown_minutes"]*60)
+            waiting = entry_wait(fresh_positions, fresh_orders, fresh_jobs, own_alert=job["alert_id"], symbol=micro, cooldown_seconds=overnight_policy.cooldown_seconds(bot_controls.read()["cooldown_minutes"]*60))
             if waiting:
                 job.update(state="Rejected", error_message=f"Not submitted: {waiting}")
                 save_job(job)
                 return
-            fresh_size = entry_quantity(settings["quantities"][micro], fresh_positions, fresh_jobs, own_alert=job["alert_id"])
+            fresh_size = overnight_policy.quantity(entry_quantity(settings["quantities"][micro], fresh_positions, fresh_jobs, own_alert=job["alert_id"]))
             if payload["size"] > fresh_size:
                 job.update(state="Rejected", error_message="Not submitted: account exposure changed sizing during preflight")
                 save_job(job)
@@ -503,14 +550,39 @@ def cycle(token):
                 job["state"] = "Rejected"
                 save_job(job)
                 return
+            if not execution_schedule()["allow_entry"]:
+                job.update(state="Rejected",error_message="Not submitted: scheduled entry cutoff")
+                save_job(job)
+                return
             # Network lookups may have consumed the signal's short entry window.
             latest = read_status().get((signal["symbol"], signal["strategy"]), {})
             now = datetime.now(timezone.utc)
             current_signal = next((r for r in alert_history(10000) if r["id"] == signal["id"]), {})
-            if not quote_fresh(latest, now) or not 0 <= (now-entered).total_seconds() <= 15 or current_signal.get("status") != "Active" or not market_session()["is_open"]:
+            if not quote_fresh(latest, now) or not entry_confirmation.window_open(current_signal,now) or current_signal.get("status") != "Active" or not market_session()["is_open"]:
                 job.update(state="Rejected", error_message="Not submitted: signal or quote freshness changed during preflight")
                 save_job(job)
                 return
+            fresh_history = alert_history(10000)
+            enabled = {r["strategy"] for r in fresh_history if bot_controls.enabled(signal["symbol"], r["strategy"])}
+            blocked = overnight_policy.entry_block(current_signal, fresh_history, enabled, fresh_positions, fresh_orders, fresh_jobs, contract["id"], own_alert=job["alert_id"])
+            if blocked or payload["size"] > overnight_policy.quantity(payload["size"]):
+                job.update(state="Rejected", error_message=f"Not submitted: {blocked or 'overnight size cap changed during preflight'}")
+                save_job(job)
+                return
+            blocked = volatility_guard.entry_block(current_signal, contract["id"])
+            if blocked:
+                job.update(state="Rejected", error_message=f"Not submitted: {blocked}")
+                save_job(job)
+                bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
+                return
+            confirmation = entry_confirmation.check(current_signal)
+            if confirmation["state"] != "Confirmed" or not entry_confirmation.window_open(current_signal):
+                job.update(state="Rejected", error_message=f"Not submitted: {confirmation['reason']}")
+                save_job(job)
+                return
+            payload = build_order({**current_signal,"entry":confirmation["price"]}, contract, payload["size"])
+            job.update(entry_confirmation=confirmation["reason"],confirmed_entry=confirmation["price"],stop_ticks=abs(payload["stopLossBracket"]["ticks"]))
+            bot_audit.emit(f"confirmation:{signal['id']}", "Entry confirmed", confirmation["reason"], signal["id"])
             response = post("/api/Order/place", payload, token=token)
             job.update(state="Submitted" if response.get("success") is True else "Rejected",
                        order_id=response.get("orderId"), error_code=response.get("errorCode"),

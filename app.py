@@ -614,7 +614,7 @@ def render_monitor_history(account_profile="practice"):
         closed, executed_results.summary(matched),
     )
     if not healthy:
-        st.warning("Monitoring is not updating. The live-feed process must be running.")
+        st.warning("Strategy monitoring is delayed or starting. New entries require fresh strategy results; check worker and feed health.")
     left, right = st.columns([1.25, 1.75], gap="medium")
     with left:
         st.subheader("Strategy watch")
@@ -630,6 +630,19 @@ def render_monitor_history(account_profile="practice"):
         st.subheader("Alert history")
         st.caption(account_profile.title()+" execution: " + execution[1].get("message", "Worker unavailable"))
         st.markdown(f"**Active alerts ({len(active)})**")
+        from trading_schedule import execution_schedule
+        schedule = execution_schedule()
+        st.caption("Entry cutoff 14:50 CT / Scheduled flatten 15:05 CT / Reopen 17:00 CT")
+        if not schedule["allow_entry"]:
+            st.warning(schedule["reason"])
+        watch_ids = [row["id"] for row in active if row["id"] not in by_alert or by_alert[row["id"]].get("state") == "Rejected"]
+        if st.button("Clear watch-only alerts",icon=":material/clear_all:",disabled=not watch_ids,key="clear_watch_alerts",
+                     help="Clears watch signals across both account views, including signals whose trades have already closed. Open, pending or uncertain orders remain protected. Trade history is retained."):
+            from watch_alerts import clear_watch_alerts
+            count = clear_watch_alerts(watch_ids)
+            skipped = len(watch_ids)-count
+            st.toast(f"Cleared {count} watch-only alerts." + (f" {skipped} could not be cleared; check open or pending orders in both accounts." if skipped else ""))
+            st.rerun(scope="fragment")
         if not active:
             st.info("No active alerts. Monitoring for the next setup.")
         for row in active:

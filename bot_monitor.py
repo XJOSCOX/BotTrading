@@ -6,15 +6,15 @@ from contextlib import closing
 from datetime import datetime, timezone
 from threading import Event
 
-from crt_strategy import evaluate_crt, fifteen_minute_candles_from_ticks, minute_candles_from_ticks
+from crt_strategy import evaluate_crt, minute_candles_from_ticks
 from reversal_strategy import evaluate_reversal
-from live_store import connect, price_history_for_symbol
+from live_store import connect, price_history_for_symbol, ticks_for_symbol
 from market_session import market_session, session_signal
 from signal_lifecycle import track_signal, alert_history
 from adaptive_exit import MODE
 from stop_policy import buffered_signal
 import bot_audit
-from strategy_catalog import STRATEGIES, NEW_STRATEGIES
+from strategy_catalog import STRATEGIES
 from continuation_strategies import evaluate_orb, evaluate_vwap, evaluate_ema_pullback, completed
 from strategy_settings import read_orb_minutes, read_stop_minutes
 from chart_history import chart_history
@@ -27,103 +27,76 @@ def format_price(value):
 
 
 def evaluate_strategy_status(symbol, strategy, session, data, allow_new=True, candles_1m=None) -> dict:
-    if strategy in NEW_STRATEGIES:
-        candles = chart_history(symbol) if candles_1m is None else candles_1m
-        price = float(data.iloc[-1]["price"]) if not data.empty else None
-        tick = 1.0 if symbol == "YM=F" else .25
-        if strategy == "ORB":
-            signal = evaluate_orb(candles, price, session["time"], tick, read_orb_minutes())
-            focus_label = "Opening range"
-        elif strategy == "VWAP Reclaim":
-            signal = evaluate_vwap(candles, price, session["time"], tick)
-            focus_label = "Session VWAP"
-        else:
-            signal = evaluate_ema_pullback(candles, price, session["time"], tick)
-            focus_label = "EMA20 / EMA50"
-        display_candles = candles
-        timeframe = "1 min"
-        focus_value = "-"
-    elif strategy == "Reversal":
-        candles = minute_candles_from_ticks(data)
-        signal, display_candles = evaluate_reversal(candles)
-        timeframe = "1 min"
-        focus_label = "RSI 30 / 70"
-        focus_value = "-" if signal.get("rsi") is None else f"{signal['rsi']:.1f}"
-    elif strategy == "CRT":
-        candles = fifteen_minute_candles_from_ticks(data)
+    from signal_candles import signal_candles
+    from signal_lifecycle import management_timeframe
+    source = chart_history(symbol) if candles_1m is None else candles_1m
+    closed = signal_candles(source,session["time"],15)
+    price = float(data.iloc[-1]["price"]) if not data.empty else None
+    tick = 1.0 if symbol == "YM=F" else .25
+    # Legacy evaluators reserve the final row for live price, not confirmation.
+    live_price = price if price is not None else float("nan")
+    live = dict(time=pd.Timestamp(session["time"]).floor("15min"),
+                open=live_price,high=live_price,low=live_price,close=live_price,volume=0)
+    candles = pd.concat([closed,pd.DataFrame([live])],ignore_index=True)
+    if strategy == "CRT":
         signal = evaluate_crt(candles)
-        display_candles = candles
-        timeframe = "15 min"
+        if len(closed)>=2:
+            reference,trigger = closed.iloc[-2],closed.iloc[-1]
+            signal["trigger_detail"] = f"15m reference range {reference['low']:,.2f}-{reference['high']:,.2f}; sweep candle low {trigger['low']:,.2f}, high {trigger['high']:,.2f}, close {trigger['close']:,.2f}."
         focus_label = "CRT Range"
-        if signal["range_high"] is None or signal["range_low"] is None:
-            focus_value = "-"
-        else:
-            focus_value = f"{format_price(signal['range_low'])} - {format_price(signal['range_high'])}"
+    elif strategy == "Reversal":
+        # Restart RSI after missing candles, rather than bridging an unknown gap.
+        gaps = closed["time"].diff().ne(pd.Timedelta(minutes=15))
+        if not closed.empty:
+            candles = pd.concat([closed.iloc[gaps[gaps].index[-1]:],pd.DataFrame([live])],ignore_index=True)
+        signal, candles = evaluate_reversal(candles,interval=15)
+        if len(candles)>=3 and pd.notna(candles.iloc[-2]["rsi"]) and pd.notna(candles.iloc[-3]["rsi"]):
+            signal["trigger_detail"] = f"Completed 15m RSI14: {candles.iloc[-3]['rsi']:.2f} to {candles.iloc[-2]['rsi']:.2f}; thresholds 30 / 70."
+        focus_label = "RSI 30 / 70"
+    elif strategy == "ORB":
+        signal = evaluate_orb(source,price,session["time"],tick,read_orb_minutes(),interval=15)
+        focus_label = "Opening range"
+    elif strategy == "VWAP Reclaim":
+        signal = evaluate_vwap(source,price,session["time"],tick,interval=15)
+        focus_label = "Session VWAP"
+    elif strategy == "EMA Pullback":
+        signal = evaluate_ema_pullback(source,price,session["time"],tick,interval=15)
+        focus_label = "EMA20 / EMA50"
     else:
         raise ValueError("Unknown strategy")
-    if strategy in NEW_STRATEGIES:
-        finished = completed(candles,session["time"])
-        setup_time = finished.iloc[-1]["time"].isoformat() if not finished.empty else None
-        setup_id = f"{setup_time}|orb{signal['orb_minutes']}" if strategy == "ORB" else setup_time
-    else:
-        setup_id = setup_time = candles.iloc[-2]["time"].isoformat() if len(candles) >= 2 else None
-    signal['setup_time'] = setup_time
-    signal.setdefault('trigger_detail', signal['reason'])
-    if strategy not in NEW_STRATEGIES and len(candles) >= 3:
-        trigger = candles.iloc[-2]
-        if strategy == 'CRT':
-            reference = candles.iloc[-3]
-            signal['trigger_detail'] = (
-                f"Reference range {format_price(reference['low'])} - {format_price(reference['high'])}. "
-                f"Signal candle low {format_price(trigger['low'])}, high {format_price(trigger['high'])}, "
-                f"close {format_price(trigger['close'])}."
-            )
-        elif 'rsi' in display_candles:
-            prior_rsi = display_candles.iloc[-3]['rsi']
-            current_rsi = display_candles.iloc[-2]['rsi']
-            import pandas as pd
-            if pd.notna(prior_rsi) and pd.notna(current_rsi):
-                signal['trigger_detail'] = f"Completed-candle RSI: {prior_rsi:.2f} to {current_rsi:.2f}. Thresholds: 30 / 70."
-    fresh = not data.empty and 0 <= (session["time"] - data["time"].max()).total_seconds() <= 10
-    signal["exit_mode"] = MODE
-    signal["tick_size"] = 1.0 if symbol == "YM=F" else 0.25
-    minute_bars = candles if strategy in NEW_STRATEGIES else minute_candles_from_ticks(data)
-    management_bars = []
-    finished = completed(minute_bars,session["time"]) if strategy in NEW_STRATEGIES else minute_bars.iloc[:-1]
-    if strategy in NEW_STRATEGIES:
-        import pandas as pd
-        latest_closed = pd.Timestamp(session["time"]).floor("min")-pd.Timedelta(minutes=1)
-        if finished.empty or finished.iloc[-1]["time"] != latest_closed or price is None:
-            allow_new = False
-            signal.update(signal="WAIT",entry=None,stop=None,target=None,reason="Waiting for a current completed minute.")
-    for bar in finished.to_dict("records"):
-        import pandas as pd
-        management_bars.append({**bar, "time": bar["time"].isoformat(),
-                                "closed_at": (bar["time"] + pd.Timedelta(minutes=1)).isoformat()})
-    import pandas as pd
-    stop_candles = chart_history(symbol) if candles_1m is None else candles_1m
-    stop_bars = [{**bar,"time":bar["time"].isoformat(),"closed_at":(bar["time"]+pd.Timedelta(minutes=1)).isoformat()}
-                 for bar in completed(stop_candles,session["time"]).to_dict("records")]
-    signal = buffered_signal(signal, stop_bars, read_stop_minutes())
-    # Legacy signals retain their original minute-bar source and exit policy.
-    from signal_lifecycle import management_timeframe
-    if management_timeframe(symbol,strategy) > 1:
-        management_bars = stop_bars
-    signal = track_signal(symbol, strategy, signal, setup_id, allow_new and session["is_open"] and fresh, management_bars)
-    signal = session_signal(signal, session)
+    setup_time = closed.iloc[-1]["time"].isoformat() if not closed.empty else None
+    setup_id = f"{setup_time}|15m" + (f"|orb{signal['orb_minutes']}" if strategy == "ORB" else "")
+    signal.update(setup_time=setup_time,signal_minutes=15,exit_mode=MODE,tick_size=tick)
+    signal.setdefault("trigger_detail",signal["reason"])
+    latest_closed = pd.Timestamp(session["time"]).floor("15min")-pd.Timedelta(minutes=15)
+    valid = not closed.empty and closed.iloc[-1]["time"] == latest_closed and price is not None
     if strategy == "CRT":
-        focus_value = f"{format_price(signal['range_low'])} - {format_price(signal['range_high'])}"
+        valid = valid and len(closed)>=2 and closed.iloc[-1]["time"]-closed.iloc[-2]["time"] == pd.Timedelta(minutes=15)
+    if not valid:
+        signal.update(signal="WAIT",entry=None,stop=None,target=None,reason="Waiting for complete, current 15-minute signal candles.")
+    fresh = not data.empty and 0 <= (session["time"]-data["time"].max()).total_seconds() <= 10
+    def records(frame):
+        return [{**bar,"time":bar["time"].isoformat(),"closed_at":(bar["time"]+pd.Timedelta(minutes=1)).isoformat()}
+                for bar in frame.to_dict("records")]
+    stop_bars = records(completed(source,session["time"]))
+    signal = buffered_signal(signal,stop_bars,read_stop_minutes())
+    # Existing CRT/Reversal signals retain the original tick-derived exit bars.
+    management_bars = stop_bars
+    if strategy in ("CRT","Reversal") and management_timeframe(symbol,strategy)==1:
+        management_bars = records(minute_candles_from_ticks(data).iloc[:-1])
+    signal = track_signal(symbol,strategy,signal,setup_id,allow_new and valid and session["is_open"] and fresh,management_bars)
+    signal = session_signal(signal,session)
+    if strategy in ("CRT","ORB"):
+        focus_value = f"{format_price(signal.get('range_low'))} - {format_price(signal.get('range_high'))}"
+        if strategy == "ORB":
+            focus_label = f"Opening range / {signal.get('orb_minutes',read_orb_minutes())} min"
     elif strategy == "Reversal":
         focus_value = "-" if signal.get("rsi") is None else f"{signal['rsi']:.1f}"
-    elif strategy == "ORB":
-        focus_label = f"Opening range / {signal.get('orb_minutes',read_orb_minutes())} min"
-        focus_value = f"{format_price(signal.get('range_low'))} - {format_price(signal.get('range_high'))}"
     elif strategy == "VWAP Reclaim":
         focus_value = format_price(signal.get("vwap"))
     else:
         focus_value = f"{format_price(signal.get('ema20'))} / {format_price(signal.get('ema50'))}"
-    return dict(signal=signal, timeframe=timeframe, focus_label=focus_label,
-                focus_value=focus_value, candles=display_candles)
+    return dict(signal=signal,timeframe="15 min",focus_label=focus_label,focus_value=focus_value,candles=candles)
 
 
 def init_status(conn):
@@ -150,6 +123,13 @@ def monitor_once():
                     minute_cache[symbol] = chart_history(symbol)
                 extra["candles_1m"] = minute_cache[symbol]
             # Quotes may arrive while history loads; compare against evaluation time.
+            latest_tick = ticks_for_symbol(symbol, limit=1)
+            if not latest_tick.empty:
+                history = data[symbol]
+                if history.empty:
+                    data[symbol] = latest_tick
+                elif latest_tick.iloc[-1]["id"] > history.iloc[-1]["id"]:
+                    data[symbol] = pd.concat([history, latest_tick], ignore_index=True).tail(50000)
             session = market_session()
             result = evaluate_strategy_status(symbol, strategy, session, data[symbol], allow_new=(symbol, strategy) in pairs, **extra)
             result.pop("candles", None)

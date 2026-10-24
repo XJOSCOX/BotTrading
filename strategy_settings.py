@@ -5,7 +5,8 @@ from live_store import connect
 
 def read_stop_minutes():
     with closing(connect()) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS stop_settings (id INTEGER PRIMARY KEY, minutes INTEGER NOT NULL)")
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='stop_settings'").fetchone():
+            return 5
         row = conn.execute("SELECT minutes FROM stop_settings WHERE id=1").fetchone()
     return row[0] if row and row[0] in (5,10,15) else 5
 
@@ -21,7 +22,8 @@ def save_stop_minutes(minutes):
 
 def read_orb_minutes():
     with closing(connect()) as conn:
-        conn.execute("CREATE TABLE IF NOT EXISTS strategy_settings (id INTEGER PRIMARY KEY, orb_minutes INTEGER NOT NULL)")
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategy_settings'").fetchone():
+            return 15
         row = conn.execute("SELECT orb_minutes FROM strategy_settings WHERE id=1").fetchone()
     return row[0] if row and row[0] in (5,15,30) else 15
 

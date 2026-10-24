@@ -3,6 +3,7 @@ import math
 import pandas as pd
 from market_session import CENTRAL
 from reversal_strategy import add_rsi
+from signal_candles import signal_candles
 
 
 def completed(candles, now):
@@ -11,8 +12,8 @@ def completed(candles, now):
     return frame.loc[frame["time"] + pd.Timedelta(minutes=1) <= pd.Timestamp(now)].sort_values("time").drop_duplicates("time",keep="last").reset_index(drop=True)
 
 
-def contiguous(frame):
-    return not frame.empty and frame["time"].diff().iloc[1:].eq(pd.Timedelta(minutes=1)).all()
+def contiguous(frame, interval=1):
+    return not frame.empty and frame["time"].diff().iloc[1:].eq(pd.Timedelta(minutes=interval)).all()
 
 
 def valid_price(price):
@@ -45,7 +46,7 @@ def candidate(base, direction, price, stop, detail, tick, target_distance=None):
     return {**base,"signal":direction,"entry":float(price),"stop":float(stop),"target":float(target),"reason":detail,"trigger_detail":detail}
 
 
-def evaluate_orb(candles, price, now, tick=.25, minutes=15):
+def evaluate_orb(candles, price, now, tick=.25, minutes=15, interval=1):
     if not valid_price(price):
         return wait("Waiting for a valid live price.",price,orb_minutes=minutes)
     if minutes not in (5,15,30):
@@ -64,9 +65,9 @@ def evaluate_orb(candles, price, now, tick=.25, minutes=15):
         return {**base,"reason":"Opening-range minutes are missing; no ORB signal."}
     high,low = float(opening["high"].max()),float(opening["low"].min())
     base.update(range_high=high,range_low=low)
-    recent = bars.tail(3)
-    if len(recent)!=3 or not contiguous(recent) or recent.iloc[-2]["time"]<end or high<=low:
-        return {**base,"reason":"Waiting for two completed breakout-confirmation minutes."}
+    recent = (signal_candles(candles,now,interval) if interval>1 else bars).tail(3)
+    if len(recent)!=3 or not contiguous(recent,interval) or recent.iloc[-2]["time"]<end or high<=low:
+        return {**base,"reason":f"Waiting for two completed {interval}-minute breakout candles."}
     before,first,last = (recent.iloc[i] for i in range(3))
     detail = f"ORB {minutes}m, 08:30-{end:%H:%M} CT; range {low:,.2f}-{high:,.2f}; two completed closes {first['close']:,.2f}, {last['close']:,.2f}."
     if before["close"]<=high and first["close"]>=high+tick and last["close"]>=high+tick and price>high:
@@ -82,7 +83,7 @@ def futures_anchor(now):
     return pd.Timestamp(f"{date} 17:00",tz=CENTRAL)
 
 
-def session_vwap(candles, now):
+def session_vwap(candles, now, interval=1):
     anchor = futures_anchor(now)
     frame = completed(candles,now)
     frame = frame.loc[frame["time"]>=anchor].reset_index(drop=True)
@@ -91,18 +92,21 @@ def session_vwap(candles, now):
     volume = pd.to_numeric(frame.get("volume",pd.Series(index=frame.index,dtype=float)),errors="coerce")
     if volume.isna().any() or (volume<0).any() or not volume.map(math.isfinite).all() or volume.sum()<=0:
         return frame,"Valid per-minute trade volume is required for VWAP."
+    if interval>1:
+        frame = signal_candles(frame,now,interval)
+        volume = frame["volume"]
     typical = (frame["high"]+frame["low"]+frame["close"])/3
     frame["vwap"] = (typical*volume).cumsum()/volume.cumsum().replace(0,float("nan"))
     return frame,None
 
 
-def evaluate_vwap(candles, price, now, tick=.25):
+def evaluate_vwap(candles, price, now, tick=.25, interval=1):
     if not valid_price(price):
         return wait("Waiting for a valid live price.",price,vwap=None)
-    frame,error = session_vwap(candles,now)
+    frame,error = session_vwap(candles,now,interval)
     base = wait(error or "Waiting for a VWAP retest aligned with the EMA20/50 trend.",price,vwap=None)
     if error or len(frame)<52:
-        return base if error else {**base,"reason":"Need 52 session minutes for VWAP trend confirmation."}
+        return base if error else {**base,"reason":f"Need 52 completed {interval}-minute session candles for VWAP trend confirmation."}
     frame = indicators(frame)
     before,prior,last = (frame.iloc[i] for i in (-3,-2,-1))
     vwap = float(last["vwap"])
@@ -124,22 +128,22 @@ def evaluate_vwap(candles, price, now, tick=.25):
     return base
 
 
-def evaluate_ema_pullback(candles, price, now, tick=.25):
+def evaluate_ema_pullback(candles, price, now, tick=.25, interval=1):
     if not valid_price(price):
         return wait("Waiting for a valid live price.",price,ema20=None,ema50=None,rsi=None)
-    frame = completed(candles,now)
-    base = wait("Need 60 contiguous completed minutes for EMA20/50 pullbacks.",price,ema20=None,ema50=None,rsi=None)
-    if len(frame)<60 or not contiguous(frame.tail(60)):
+    frame = signal_candles(candles,now,interval) if interval>1 else completed(candles,now)
+    base = wait(f"Need 60 contiguous completed {interval}-minute candles for EMA20/50 pullbacks.",price,ema20=None,ema50=None,rsi=None)
+    if len(frame)<60 or not contiguous(frame.tail(60),interval):
         return base
     # Restart indicators after a data/session gap, never bridge missing minutes.
-    gaps = frame["time"].diff().ne(pd.Timedelta(minutes=1))
+    gaps = frame["time"].diff().ne(pd.Timedelta(minutes=interval))
     frame = indicators(frame.iloc[gaps[gaps].index[-1]:].reset_index(drop=True))
     last,prior = frame.iloc[-1],frame.iloc[-2]
     pullback = frame.iloc[-4:-1]
     base.update(ema20=float(last["ema20"]),ema50=float(last["ema50"]),rsi=None if pd.isna(last["rsi"]) else float(last["rsi"]),range_low=float(pullback["low"].min()),range_high=float(pullback["high"].max()))
     tolerance = max(tick,float(last["atr"])*.15)
     touched = any(((pullback["low"]<=pullback[key]+tolerance)&(pullback["high"]>=pullback[key]-tolerance)).any() for key in ("ema20","ema50"))
-    detail = f"EMA20 {last['ema20']:,.2f}, EMA50 {last['ema50']:,.2f}; RSI14 {prior['rsi']:.2f} to {last['rsi']:.2f}; prior 3-minute EMA retest: {bool(touched)}; confirmation close {last['close']:,.2f}."
+    detail = f"EMA20 {last['ema20']:,.2f}, EMA50 {last['ema50']:,.2f}; RSI14 {prior['rsi']:.2f} to {last['rsi']:.2f}; prior three {interval}m candles EMA retest: {bool(touched)}; confirmation close {last['close']:,.2f}."
     base.update(reason="Waiting for EMA pullback plus RSI50 and candle momentum confirmation.",trigger_detail=detail)
     if touched and last["ema20"]>last["ema50"] and last["ema50"]>prior["ema50"] and prior["rsi"]<=50<last["rsi"] and last["close"]>max(prior["high"],last["open"],last["ema20"]) and price>last["ema20"]:
         return candidate(base,"LONG",price,min(last["low"],pullback["low"].min()),detail+" Bullish trend continuation.",tick)

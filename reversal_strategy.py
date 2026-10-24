@@ -38,7 +38,7 @@ def consecutive_extreme_count(values: pd.Series, side: str) -> int:
     return count
 
 
-def evaluate_reversal(candles: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
+def evaluate_reversal(candles: pd.DataFrame, interval=1) -> tuple[dict, pd.DataFrame]:
     candles_with_rsi = add_rsi(candles)
     completed = candles_with_rsi.iloc[:-1]
     current = candles_with_rsi.iloc[-1] if not candles_with_rsi.empty else None
@@ -47,7 +47,7 @@ def evaluate_reversal(candles: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
         return (
             {
                 "signal": "WAIT",
-                "reason": "Need more completed 1-minute candles for RSI reversal.",
+                "reason": f"Need more completed {interval}-minute candles for RSI reversal.",
                 "entry": None,
                 "stop": None,
                 "target": None,
@@ -66,8 +66,9 @@ def evaluate_reversal(candles: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
     prior_rsi = prior["rsi"]
     current_close = float(current["close"])
     rsi = None if pd.isna(previous_rsi) else float(previous_rsi)
-    low_extreme_count = consecutive_extreme_count(completed["rsi"], "low")
-    high_extreme_count = consecutive_extreme_count(completed["rsi"], "high")
+    low_extreme_count = consecutive_extreme_count(completed["rsi"], "low") * interval
+    high_extreme_count = consecutive_extreme_count(completed["rsi"], "high") * interval
+    extreme_bars = max(1, (EXTREME_MINUTES+interval-1)//interval)
 
     if pd.notna(prior_rsi) and pd.notna(previous_rsi):
         if prior_rsi <= OVERSOLD and previous_rsi > OVERSOLD:
@@ -144,10 +145,10 @@ def evaluate_reversal(candles: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
                 "signal": "LONG WATCH",
                 "reason": f"RSI has stayed at or below 30 for {low_extreme_count} completed minutes.",
                 "entry": current_close,
-                "stop": float(completed.tail(EXTREME_MINUTES)["low"].min()),
-                "target": float(completed.tail(EXTREME_MINUTES)["high"].max()),
-                "range_high": float(completed.tail(EXTREME_MINUTES)["high"].max()),
-                "range_low": float(completed.tail(EXTREME_MINUTES)["low"].min()),
+                "stop": float(completed.tail(extreme_bars)["low"].min()),
+                "target": float(completed.tail(extreme_bars)["high"].max()),
+                "range_high": float(completed.tail(extreme_bars)["high"].max()),
+                "range_low": float(completed.tail(extreme_bars)["low"].min()),
                 "last_close": current_close,
                 "rsi": rsi,
                 "extreme_minutes": low_extreme_count,
@@ -161,10 +162,10 @@ def evaluate_reversal(candles: pd.DataFrame) -> tuple[dict, pd.DataFrame]:
                 "signal": "SHORT WATCH",
                 "reason": f"RSI has stayed at or above 70 for {high_extreme_count} completed minutes.",
                 "entry": current_close,
-                "stop": float(completed.tail(EXTREME_MINUTES)["high"].max()),
-                "target": float(completed.tail(EXTREME_MINUTES)["low"].min()),
-                "range_high": float(completed.tail(EXTREME_MINUTES)["high"].max()),
-                "range_low": float(completed.tail(EXTREME_MINUTES)["low"].min()),
+                "stop": float(completed.tail(extreme_bars)["high"].max()),
+                "target": float(completed.tail(extreme_bars)["low"].min()),
+                "range_high": float(completed.tail(extreme_bars)["high"].max()),
+                "range_low": float(completed.tail(extreme_bars)["low"].min()),
                 "last_close": current_close,
                 "rsi": rsi,
                 "extreme_minutes": high_extreme_count,

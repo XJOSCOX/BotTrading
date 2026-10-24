@@ -9,6 +9,17 @@ import live_store
 
 
 class MonitorTests(unittest.TestCase):
+    def test_each_pair_uses_price_received_after_history_load(self):
+        old = pd.Timestamp.now(tz="UTC") - pd.Timedelta(minutes=3)
+        history = pd.DataFrame({"id": [1], "time": [old], "price": [100.0]})
+        latest = pd.DataFrame({"id": [2], "time": [pd.Timestamp.now(tz="UTC")], "price": [101.0]})
+        with tempfile.TemporaryDirectory() as folder, patch.object(live_store, "DB_PATH", Path(folder)/"test.db"), patch.object(bot_monitor, "alert_history", return_value=[]), patch.object(bot_monitor, "chart_history", return_value=pd.DataFrame()), patch.object(bot_monitor, "price_history_for_symbol", return_value=history), patch.object(bot_monitor, "ticks_for_symbol", return_value=latest), patch.object(bot_monitor, "evaluate_strategy_status", return_value={"signal": {"signal": "WAIT"}}) as evaluate:
+            bot_monitor.monitor_once()
+            self.assertEqual(evaluate.call_count, 15)
+            for call in evaluate.call_args_list:
+                self.assertEqual(call.args[3].iloc[-1]["price"], 101.0)
+            self.assertTrue(all(r["feed_fresh"] for r in bot_monitor.read_status().values()))
+
     def test_fifteen_pairs_without_ui_and_legacy_exit_only(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store, "DB_PATH", Path(folder) / "test.db"):
             data = pd.DataFrame({"time": [pd.Timestamp.now(tz="UTC")]})
