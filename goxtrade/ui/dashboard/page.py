@@ -17,6 +17,9 @@ def render_dashboard() -> None:
     with overview:
         with st.container(key="dashboard_overview"):
             render_statistics()
+            with st.expander("Strategy research & execution comparison"):
+                from goxtrade.ui.bot.strategy_research import render_comparison
+                render_comparison()
     with settings:
         with st.container(key="dashboard_settings"):
             render_dashboard_settings()

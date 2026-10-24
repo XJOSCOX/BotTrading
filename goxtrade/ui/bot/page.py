@@ -121,7 +121,10 @@ def render_bot() -> None:
                 strategy_settings.save_orb_minutes(orb_minutes)
                 strategy_settings.save_stop_minutes(stop_minutes)
                 st.success("Saved for new setups. Existing signals retain their original range and exit timeframe.")
-    monitor, operations, research, inbox = st.tabs(["Monitor", "Controls & review", "Replay lab", "Notifications"])
+    monitor, operations, research, vwap, inbox = st.tabs(["Monitor", "Controls & review", "Replay lab", "VWAP EMA Cross", "Notifications"])
+    with vwap:
+        from goxtrade.ui.bot.vwap_ema_panel import render as render_vwap
+        render_vwap()
     with monitor:
         with st.container(key="bot_monitor"):
             render_monitor_history(account_profile)

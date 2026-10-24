@@ -55,7 +55,7 @@ def render_live_market_chart(symbol: str, range_name: str, compact: bool = False
         ('Low', f"{float(data['low' if 'low' in data else 'price'].min()):,.2f}", 'Selected range low', ''),
         ('Volume', f'{volume:,.0f}' if volume is not None else '--', 'Latest exchange-reported session volume', ''),
     ]
-    timeframe = {'1 min': '1min', '5 min': '5min', '15 min': '15min', '30 min': '30min', '1 hour': '1h'}[candle_label]
+    timeframe = {'1 min': '1min', '3 min': '3min', '5 min': '5min', '15 min': '15min', '30 min': '30min', '1 hour': '1h'}[candle_label]
     render_live_candles(data, symbol, height=height, range_label=range_label,
                         timeframe=timeframe, candle_label=candle_label, metrics=metrics)
 
@@ -86,7 +86,7 @@ def render_market() -> None:
         with controls[1]:
             range_name = st.selectbox("Range", ["48H", "1D", "500 ticks", "1,000 ticks", "2,500 ticks", "5,000 ticks"], index=0)
         with controls[2]:
-            candle_label = st.selectbox('Candles', ['1 min', '5 min', '15 min', '30 min', '1 hour'])
+            candle_label = st.selectbox('Candles', ['1 min', '3 min', '5 min', '15 min', '30 min', '1 hour'])
         with controls[3]:
             chart_height = st.number_input('Chart height (px)', min_value=480, max_value=1400, value=800, step=40, key='market_chart_height')
     if not selected:

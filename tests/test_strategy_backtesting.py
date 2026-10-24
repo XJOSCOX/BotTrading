@@ -79,6 +79,17 @@ class BacktestTests(unittest.TestCase):
         for trade in runs[0]["out_of_sample"]["trades"]:
             self.assertGreaterEqual(pd.Timestamp(trade["entry_time"]), pd.Timestamp(runs[0]["split_at"]))
 
+    def test_selected_window_keeps_prior_warmup_without_counting_prior_trades(self):
+        frame = long_fixture()
+        start = frame.iloc[141]["time"]
+        result = self.run_model(frame, trade_start=start)
+        self.assertEqual(result["start"], start.isoformat())
+        self.assertEqual(result["warmup_start"], frame.iloc[0]["time"].isoformat())
+        self.assertEqual(len(result["trades"]), 1)
+        self.assertGreaterEqual(pd.Timestamp(result["trades"][0]["entry_time"]), start)
+        with self.assertRaises(ValueError):
+            self.run_model(frame, trade_start=frame.iloc[-1]["time"]+pd.Timedelta(days=1))
+
     def test_all_six_contract_specs_have_distinct_correct_values(self):
         for symbol, tick, point in (("NQ", .25, 20), ("MNQ", .25, 2), ("ES", .25, 50),
                                     ("MES", .25, 5), ("YM", 1, 5), ("MYM", 1, .5)):

@@ -4,7 +4,7 @@ import streamlit as st
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from goxtrade.bot.signal_pnl import dollars, money, dollar_summary
-from goxtrade.strategies.strategy_catalog import STRATEGIES
+from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec
 
 
 def recent_alerts(rows):
@@ -219,7 +219,7 @@ def strategy_matrix(symbols, results, prices, healthy, market_open, history=(), 
     for name in STRATEGIES:
         reference = next((results[(s,name)] for s in symbols if (s,name) in results), {})
         label = reference.get("focus_label",name)
-        interval = reference.get("timeframe","15 min")
+        interval = reference.get("timeframe",f"{strategy_spec(name).signal_minutes} min")
         cells = []
         for symbol in symbols:
             result = results.get((symbol,name),{})
@@ -289,6 +289,9 @@ def symbol_monitor(symbol, results, tick, healthy, market_open, history=(), jobs
 
 def history_card(row, tick=None, market_open=True, job=None, result=None, decisions=()):
     direction = row["signal"]
+    classification = row.get("raw_signal", direction)
+    mode_badge = (f' / {escape(row.get("entry_mode", "CONFIRMED"))} / {int(row.get("signal_minutes", 3))}m'
+                  if row.get("strategy_id") == "vwap_ema_cross" else "")
     trade_closed = bool(job and job.get("state") == "Closed")
     closed = row["status"] == "Closed"
     entry, exit_price = row.get("entry"), row.get("exit_price")
@@ -359,10 +362,10 @@ def history_card(row, tick=None, market_open=True, job=None, result=None, decisi
       </style><article class="gx gx-history">
       <div class="gx-history-head"><div class="gx-history-title">
         <strong>{escape(row["symbol"].replace("=F", ""))}</strong>
-        <b style="color:{color(direction)}">{escape(direction)}</b>
+        <b style="color:{color(direction)}">{escape(classification)}</b>
         <span>{escape(row["strategy"])}</span></div>
         <b style="color:{outcome_color}">{outcome}</b></div>
-      <small>#{row["id"]} / {escape(ct(row.get("entry_time")))} / {"Trade closed" if trade_closed else "Signal " + escape(row["status"])} / {escape(execution)} / Signal entry {price(entry)}</small>
+      <small>#{row["id"]} / {escape(ct(row.get("entry_time")))} / {"Trade closed" if trade_closed else "Signal " + escape(row["status"])} / {escape(execution)} / Signal entry {price(entry)}{mode_badge}</small>
       {live_html}
       {decision_html}
       <div class="gx-history-levels">{level_html}</div>

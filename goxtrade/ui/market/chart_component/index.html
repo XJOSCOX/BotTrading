@@ -34,6 +34,7 @@ button:hover {background:#343d49;}
 const send = (type, extra={}) => window.parent.postMessage({isStreamlitMessage:true,type,...extra}, '*');
 let chart, series, volumeSeries, volumeChart, rsiChart, rsiSeries, ema20Series, ema50Series, chartHeight=620, syncing=false, bars=[], storageKey='', follow=true, updating=false;
 let paneHeights={volume:60,rsi:130}, draggingPane=false;
+let strategyEmaSeries, strategyVwapSeries, strategyLevels=[];
 try {
   const saved=JSON.parse(localStorage.getItem('goxtrade-pane-heights'));
   if(saved && Number.isFinite(saved.volume) && Number.isFinite(saved.rsi))
@@ -174,7 +175,8 @@ window.addEventListener('message',event=>{
   let view=snapshot();
   updating=true;
   if (!chart) {
-    storageKey='goxtrade-chart-v2:'+args.symbol+':'+(args.timeframe || '1min');
+    storageKey='goxtrade-chart-v2:'+args.symbol+':'+(args.timeframe || '1min')+(args.strategy_overlay?':vwap':'');
+    if(args.strategy_overlay) document.getElementById('show-rsi').checked=false;
     chart=LightweightCharts.createChart(document.getElementById('chart'),{
       autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#d6dce5'},
       grid:{vertLines:{color:'#1f2630'},horzLines:{color:'#1f2630'}},
@@ -189,6 +191,8 @@ window.addEventListener('message',event=>{
       priceFormat:{type:'price',precision:args.symbol==='YM=F'?0:2,minMove:args.symbol==='YM=F'?1:0.25}});
     ema20Series=chart.addLineSeries({color:'#429b44',lineWidth:1,priceLineVisible:false,visible:false});
     ema50Series=chart.addLineSeries({color:'#e54550',lineWidth:1,priceLineVisible:false,visible:false});
+    strategyEmaSeries=chart.addLineSeries({color:'#e6bc61',lineWidth:2,priceLineVisible:false,visible:false});
+    strategyVwapSeries=chart.addLineSeries({color:'#60a5fa',lineWidth:2,priceLineVisible:false,visible:false});
     series.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.08},minimumWidth:80});
     chart.timeScale().applyOptions({visible:false});
     const indicatorOptions={autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#aab3c0'},
@@ -233,6 +237,23 @@ window.addEventListener('message',event=>{
   rsiSeries.setData(next.map(rsiPoint));
   ema20Series.setData(next.map(bar=>bar.ema20==null?{time:bar.time}:{time:bar.time,value:bar.ema20}));
   ema50Series.setData(next.map(bar=>bar.ema50==null?{time:bar.time}:{time:bar.time,value:bar.ema50}));
+  strategyEmaSeries.applyOptions({visible:!!args.strategy_overlay,title:args.ema_label || 'EMA'});
+  strategyVwapSeries.applyOptions({visible:!!args.strategy_overlay,title:'Session VWAP'});
+  if(args.strategy_overlay) {
+    strategyEmaSeries.setData(next.map(b=>b.strategy_ema==null?{time:b.time}:{time:b.time,value:b.strategy_ema}));
+    strategyVwapSeries.setData(next.map(b=>b.strategy_vwap==null?{time:b.time}:{time:b.time,value:b.strategy_vwap}));
+  }
+  series.setMarkers(args.markers || []);
+  strategyLevels.forEach(line=>series.removePriceLine(line));strategyLevels=[];
+  Object.entries(args.levels || {}).forEach(([name,price])=>{
+    if(typeof price==='number' && Number.isFinite(price)) strategyLevels.push(series.createPriceLine({price,
+      color:name==='stop'?'#f28c98':name==='target'?'#65d6bc':'#e6bc61',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:name}));
+  });
+  if(args.strategy_overlay) series.applyOptions({autoscaleInfoProvider:base=>{
+    const info=base();if(!info) return info;
+    const levels=Object.values(args.levels || {}).filter(p=>typeof p==='number' && Number.isFinite(p));
+    return {...info,priceRange:{minValue:Math.min(info.priceRange.minValue,...levels),maxValue:Math.max(info.priceRange.maxValue,...levels)}};
+  }});
   legend(next[next.length-1]);
   bars=next;
   if (view) {follow=view.follow;restore(view);}

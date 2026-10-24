@@ -88,7 +88,9 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
         return _tick_backtest(frame, validate_ticks(ticks, contract_id), signal_symbol, contract_id, spec, config, sim, trade_start)
     if ticks is not None:
         raise UnsupportedDataset("Use the intrabar modes to replay trade observations")
-    start = pd.Timestamp(trade_start).tz_convert("UTC") if trade_start is not None else frame.iloc[0]["time"]
+    start = max(pd.Timestamp(trade_start).tz_convert("UTC"), frame.iloc[0]["time"]) if trade_start is not None else frame.iloc[0]["time"]
+    if start >= frame.iloc[-1]["time"]+pd.Timedelta(minutes=1):
+        raise ValueError("No observations in the requested trading window")
     contract = instrument(symbol)
     slip = sim.slippage_ticks*contract.tick_size
     observation, seen, active, pending_exit = {}, set(), None, None
@@ -185,7 +187,9 @@ def _tick_backtest(minutes, ticks, symbol, contract_id, spec, config, sim, trade
     """Observation replay: detect on one trade, fill only on a later sequence."""
     if ticks.empty:
         raise UnsupportedDataset("No intrabar observations available")
-    start = pd.Timestamp(trade_start).tz_convert("UTC") if trade_start is not None else ticks.iloc[0]["time"]
+    start = max(pd.Timestamp(trade_start).tz_convert("UTC"), ticks.iloc[0]["time"]) if trade_start is not None else ticks.iloc[0]["time"]
+    if start > ticks.iloc[-1]["time"]:
+        raise ValueError("No trade observations in the requested trading window")
     contract = instrument(symbol)
     observation, pending, active, seen = {}, None, None, set()
     trades, decisions, partials, equity = [], {}, {}, [sim.starting_balance]
@@ -253,12 +257,13 @@ def _tick_backtest(minutes, ticks, symbol, contract_id, spec, config, sim, trade
 
 
 def chronological_splits(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strategy_config=None,
-                         simulation=None, training_fraction=.7, folds=1):
+                         simulation=None, training_fraction=.7, folds=1, trade_start=None):
     """Expanding chronological training windows; no parameter selection by P&L."""
     if not .1 <= training_fraction <= .9 or type(folds) is not int or not 1 <= folds <= 10:
         raise ValueError("Choose a 10-90% initial training window and 1-10 folds")
     frame = validate_dataset(minutes, contract_id)
-    split = int(len(frame)*training_fraction)
+    offset = int(frame["time"].lt(pd.Timestamp(trade_start).tz_convert("UTC")).sum()) if trade_start is not None else 0
+    split = offset+int((len(frame)-offset)*training_fraction)
     step = max(1, (len(frame)-split)//folds)
     runs = []
     for fold in range(folds):
@@ -266,7 +271,7 @@ def chronological_splits(minutes, symbol, contract_id, strategy="VWAP EMA Cross"
         end = len(frame) if fold == folds-1 else min(len(frame), boundary+step)
         if boundary < 2 or boundary >= end:
             continue
-        train = run_backtest(frame.iloc[:boundary], symbol, contract_id, strategy, strategy_config, simulation)
+        train = run_backtest(frame.iloc[:boundary], symbol, contract_id, strategy, strategy_config, simulation, trade_start=trade_start)
         test = run_backtest(frame.iloc[:end], symbol, contract_id, strategy, strategy_config, simulation,
                             trade_start=frame.iloc[boundary]["time"])
         runs.append(dict(fold=fold+1, split_at=frame.iloc[boundary]["time"].isoformat(), in_sample=train, out_of_sample=test))
