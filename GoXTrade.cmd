@@ -1,5 +1,5 @@
 @echo off
 cd /d "%~dp0"
-"C:\Python313\python.exe" "%~dp0manage_app.py" menu
+"C:\Python313\python.exe" -m goxtrade.runtime.manage_app menu
 echo.
 pause
