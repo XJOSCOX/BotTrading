@@ -4,7 +4,7 @@ from contextlib import closing
 from goxtrade.data.live_store import connect
 from goxtrade.bot.bot_audit import emit
 from goxtrade.config.execution_target import PROFILE, TARGETS
-from goxtrade.strategies.strategy_catalog import STRATEGIES
+from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec, execution_block
 
 DEFAULTS = dict(symbols=["MNQ", "MES", "MYM"], strategies=["CRT", "Reversal"], cooldown_minutes=5)
 
@@ -22,11 +22,14 @@ def read(profile=None):
 
 
 def save(symbols, strategies, cooldown_minutes, profile=None):
+    selected_profile = profile or PROFILE
     key = TARGETS[profile or PROFILE]["gate_id"]
     if not set(symbols) <= {"MNQ", "MES", "MYM"} or not set(strategies) <= set(STRATEGIES):
         raise ValueError("Unsupported symbol or strategy")
     if type(cooldown_minutes) is not int or not 1 <= cooldown_minutes <= 60:
         raise ValueError("Cooldown must be 1-60 minutes")
+    if any(selected_profile not in strategy_spec(strategy).execution_profiles for strategy in strategies):
+        raise ValueError("A selected strategy is not eligible for this execution profile")
     record = dict(symbols=list(symbols), strategies=list(strategies), cooldown_minutes=cooldown_minutes)
     with closing(connect()) as conn:
         init(conn)
@@ -38,4 +41,9 @@ def save(symbols, strategies, cooldown_minutes, profile=None):
 def enabled(symbol, strategy):
     settings = read()
     micro = {"NQ=F":"MNQ", "ES=F":"MES", "YM=F":"MYM"}.get(symbol)
-    return micro in settings["symbols"] and strategy in settings["strategies"]
+    if micro not in settings["symbols"] or strategy not in settings["strategies"]:
+        return False
+    try:
+        return execution_block(dict(strategy=strategy, entry_mode="CONFIRMED"), PROFILE) is None
+    except (ValueError, KeyError, TypeError):
+        return False

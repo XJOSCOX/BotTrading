@@ -14,6 +14,11 @@ from goxtrade.strategies.signal_candles import signal_candles
 
 def window_open(signal, now=None):
     now = pd.Timestamp(now or datetime.now(timezone.utc))
+    if signal.get("entry_policy") == "indicator-event-v1":
+        start = pd.to_datetime(signal.get("confirmed_at") if signal.get("entry_mode") == "CONFIRMED" else signal.get("detected_at"), utc=True, errors="coerce")
+        seconds = signal.get("entry_window_seconds", 90)
+        return bool(pd.notna(start) and isinstance(seconds, (int, float)) and 0 < seconds <= 600
+                    and 0 <= (now-start).total_seconds() < seconds)
     start = pd.to_datetime(signal.get("setup_time"), utc=True, errors="coerce")+pd.Timedelta(minutes=15)
     # Practice must have time to evaluate the first post-setup 5m close.
     seconds = 600 if PROFILE == "practice" else 300
@@ -21,6 +26,8 @@ def window_open(signal, now=None):
 
 
 def evaluate(signal, minutes, price, now):
+    if signal.get("entry_policy") == "indicator-event-v1":
+        return evaluate_indicator_entry(signal, minutes, price, now)
     def result(state, reason):
         return dict(state=state, reason=reason, price=price)
     if not window_open(signal, now) or signal.get("status") != "Active":
@@ -75,6 +82,59 @@ def evaluate(signal, minutes, price, now):
     return result("Confirmed", f"5m directional body and momentum; 1m break at {last['time'].isoformat()}, close {last['close']:.2f}; live {price:.2f}")
 
 
+def evaluate_indicator_entry(signal, minutes, price, now):
+    from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
+    from goxtrade.strategies.vwap_ema_indicators import indicator_frame
+    from goxtrade.strategies.vwap_ema_cross import optional_filters
+    from goxtrade.market.instruments import instrument
+    def result(state, reason):
+        return dict(state=state, reason=reason, price=price)
+    if signal.get("status") != "Active" or not window_open(signal, now):
+        return result("Cancelled", "Indicator event expired or inactive")
+    if signal.get("signal") not in ("LONG", "SHORT"):
+        return result("Cancelled", "Invalid indicator direction")
+    config = VwapEmaConfig.from_dict(signal.get("config_snapshot"))
+    if any(value is None or not math.isfinite(float(value)) for value in (price, signal.get("stop"), signal.get("target"))):
+        return result("Waiting", "Valid executable price and protective levels are required")
+    long = signal["signal"] == "LONG"
+    if (price <= signal["stop"] if long else price >= signal["stop"]):
+        return result("Cancelled", "Strategy protective stop invalidated before entry")
+    if (signal.get("_post_detection_low", price) <= signal["stop"] if long else signal.get("_post_detection_high", price) >= signal["stop"]):
+        return result("Cancelled", "A post-detection trade breached the protective stop")
+    if (price >= signal["target"] if long else price <= signal["target"]):
+        return result("Cancelled", "Strategy reference target reached before entry")
+    try:
+        frame = indicator_frame(minutes, now, config, signal.get("_validation_sequence"))
+        if len(frame) < 2 or not frame.iloc[-1]["coverage"]:
+            return result("Waiting", "Current complete session data is unavailable")
+        last, prior = frame.iloc[-1], frame.iloc[-2]
+        if pd.isna(last["gap"]) or last["warmup"] < config.warmup_bars:
+            return result("Waiting", "Indicators are not initialized")
+        if config.entry_mode == "CONFIRMED":
+            cross = prior["gap"] <= 0 < last["gap"] if long else prior["gap"] >= 0 > last["gap"]
+            if last["time"] != pd.Timestamp(signal["setup_time"]) or not cross:
+                return result("Cancelled", "The original completed crossover is no longer current")
+        elif config.entry_mode == "REALTIME":
+            if not last["provisional"] or not (last["gap"] > 0 if long else last["gap"] < 0):
+                return result("Cancelled", "The provisional crossover reversed before submission")
+        else:
+            approaching_side = last["gap"] < 0 if long else last["gap"] > 0
+            sign = 1 if long else -1
+            supporting = ((last["ema"]-prior["ema"])*sign > config.anticipation_min_slope_ticks*instrument(signal["symbol"]).tick_size
+                          and (last["close"]-prior["close"])*sign > 0)
+            if (not last["provisional"] or not approaching_side or not supporting
+                    or abs(last["gap"]) > abs(signal.get("indicator_distance", 0))
+                    or abs(last["gap"]) > config.anticipation_distance_ticks*instrument(signal["symbol"]).tick_size):
+                return result("Cancelled", "Anticipatory conditions changed; no conversion into a confirmed signal")
+        checks = optional_filters(frame, signal["signal"], price, now, config, instrument(signal["symbol"]).tick_size)
+        failed = [name for name, value in checks.items() if value == "failed"]
+        if failed:
+            return result("Waiting", "Current strategy filters failed: " + ", ".join(failed))
+    except (ValueError, KeyError, TypeError) as error:
+        return result("Waiting", f"Strategy validation data unavailable: {error}")
+    return result("Confirmed", f"{config.entry_mode} indicator event revalidated at current trade price {price:.2f}; original strategy stop retained")
+
+
 def check(signal, now=None):
     now = now or datetime.now(timezone.utc)
     with closing(connect()) as conn:
@@ -86,7 +146,18 @@ def check(signal, now=None):
                             (signal["symbol"],contract_for_symbol(signal["symbol"]))).fetchone()
         price = valid_price(signal["symbol"],tick["price"]) if tick else None
         fresh = tick and all(pd.notna(stamp:=pd.to_datetime(tick[k],utc=True,errors="coerce")) and 0<=(pd.Timestamp(now)-stamp).total_seconds()<=10 for k in ("event_time","received_at"))
-        result = evaluate(signal,chart_history(signal["symbol"]),price,now) if fresh else dict(state="Waiting",reason="Fresh index trade required",price=None)
+        source = None
+        if fresh and signal.get("entry_policy") == "indicator-event-v1":
+            from goxtrade.data.strategy_history import load_strategy_minutes, latest_trade
+            contract = contract_for_symbol(signal["symbol"])
+            source = load_strategy_minutes(signal["symbol"], contract, now)
+            last = latest_trade(signal["symbol"], contract)
+            bounds = conn.execute("SELECT MIN(price),MAX(price) FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND id>? AND price>0",
+                                  (signal["symbol"], contract, signal.get("detection_sequence") or 0)).fetchone()
+            signal = {**signal, "_validation_sequence": last["id"] if last else None,
+                      "_post_detection_low": bounds[0] if bounds[0] is not None else price,
+                      "_post_detection_high": bounds[1] if bounds[1] is not None else price}
+        result = evaluate(signal,source if source is not None else chart_history(signal["symbol"]),price,now) if fresh else dict(state="Waiting",reason="Fresh index trade required",price=None)
         conn.execute("INSERT OR REPLACE INTO entry_confirmations VALUES (?,?,?,?)",(PROFILE,signal["id"],result["state"],result["reason"]))
         conn.commit()
     return result

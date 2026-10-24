@@ -14,7 +14,7 @@ from goxtrade.bot.signal_lifecycle import track_signal, alert_history
 from goxtrade.strategies.adaptive_exit import MODE
 from goxtrade.strategies.stop_policy import buffered_signal
 from goxtrade.bot import bot_audit
-from goxtrade.strategies.strategy_catalog import STRATEGIES
+from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec
 from goxtrade.strategies.continuation_strategies import evaluate_orb, evaluate_vwap, evaluate_ema_pullback, completed
 from goxtrade.strategies.strategy_settings import read_orb_minutes, read_stop_minutes
 from goxtrade.data.chart_history import chart_history
@@ -27,15 +27,20 @@ def format_price(value):
 
 
 def evaluate_strategy_status(symbol, strategy, session, data, allow_new=True, candles_1m=None) -> dict:
+    from importlib import import_module
+    spec = strategy_spec(strategy)
+    if spec.runtime_adapter:
+        return import_module(spec.runtime_adapter).evaluate_status(symbol, spec.name, session, allow_new)
     from goxtrade.strategies.signal_candles import signal_candles
     from goxtrade.bot.signal_lifecycle import management_timeframe
     source = chart_history(symbol) if candles_1m is None else candles_1m
-    closed = signal_candles(source,session["time"],15)
+    interval = spec.signal_minutes
+    closed = signal_candles(source,session["time"],interval)
     price = float(data.iloc[-1]["price"]) if not data.empty else None
     tick = 1.0 if symbol == "YM=F" else .25
     # Legacy evaluators reserve the final row for live price, not confirmation.
     live_price = price if price is not None else float("nan")
-    live = dict(time=pd.Timestamp(session["time"]).floor("15min"),
+    live = dict(time=pd.Timestamp(session["time"]).floor(f"{interval}min"),
                 open=live_price,high=live_price,low=live_price,close=live_price,volume=0)
     candles = pd.concat([closed,pd.DataFrame([live])],ignore_index=True)
     if strategy == "CRT":
@@ -66,7 +71,8 @@ def evaluate_strategy_status(symbol, strategy, session, data, allow_new=True, ca
         raise ValueError("Unknown strategy")
     setup_time = closed.iloc[-1]["time"].isoformat() if not closed.empty else None
     setup_id = f"{setup_time}|15m" + (f"|orb{signal['orb_minutes']}" if strategy == "ORB" else "")
-    signal.update(setup_time=setup_time,signal_minutes=15,exit_mode=MODE,tick_size=tick)
+    signal.update(setup_time=setup_time,signal_minutes=interval,exit_mode=MODE,tick_size=tick,
+                  strategy_id=spec.id,entry_mode="CONFIRMED")
     signal.setdefault("trigger_detail",signal["reason"])
     latest_closed = pd.Timestamp(session["time"]).floor("15min")-pd.Timedelta(minutes=15)
     valid = not closed.empty and closed.iloc[-1]["time"] == latest_closed and price is not None
@@ -96,7 +102,7 @@ def evaluate_strategy_status(symbol, strategy, session, data, allow_new=True, ca
         focus_value = format_price(signal.get("vwap"))
     else:
         focus_value = f"{format_price(signal.get('ema20'))} / {format_price(signal.get('ema50'))}"
-    return dict(signal=signal,timeframe="15 min",focus_label=focus_label,focus_value=focus_value,candles=candles)
+    return dict(signal=signal,timeframe=f"{interval} min",focus_label=focus_label,focus_value=focus_value,candles=candles)
 
 
 def init_status(conn):

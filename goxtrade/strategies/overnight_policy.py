@@ -43,9 +43,13 @@ def evaluate(signal, history, enabled, bars, quote, contract_id, now):
     if signal.get("signal") not in ("LONG", "SHORT"):
         return "Overnight: invalid signal direction"
     expected = pd.Timestamp(now).tz_convert("UTC").floor("15min")-pd.Timedelta(minutes=15)
-    if (signal.get("status") != "Active" or signal.get("strategy") not in enabled
-            or signal.get("signal_minutes") != 15
-            or pd.to_datetime(signal.get("setup_time"),utc=True,errors="coerce") != expected):
+    if signal.get("entry_policy") == "indicator-event-v1":
+        from goxtrade.strategies.entry_confirmation import window_open
+        current_setup = window_open(signal, now)
+    else:
+        current_setup = (signal.get("signal_minutes") == 15
+                         and pd.to_datetime(signal.get("setup_time"),utc=True,errors="coerce") == expected)
+    if signal.get("status") != "Active" or signal.get("strategy") not in enabled or not current_setup:
         return "Overnight: need an enabled strategy on the current completed 15m candle"
     if any(row.get("status") == "Active" and row.get("symbol") == signal.get("symbol")
            and row.get("strategy") in enabled and row.get("signal") in ("LONG", "SHORT")

@@ -22,6 +22,11 @@ def backfill_history(symbol):
         raise RuntimeError('Historical data request failed')
     bars = response.get('bars') or []
     with closing(connect()) as conn:
+        from goxtrade.data.strategy_history import initialize
+        initialize(conn)
+        conn.executemany("INSERT OR REPLACE INTO strategy_historical_minutes VALUES (?,?,?,?,?,?,?,?)",
+                         [(symbol, contract, pd.Timestamp(b['t']).tz_convert('UTC').floor('min').isoformat(), b['o'], b['h'], b['l'], b['c'], b.get('v'))
+                          for b in bars if pd.Timestamp(b['t']) < end])
         conn.execute('CREATE TABLE IF NOT EXISTS historical_minutes (symbol TEXT,time TEXT,open REAL,high REAL,low REAL,close REAL,PRIMARY KEY(symbol,time))')
         if 'volume' not in [r[1] for r in conn.execute('PRAGMA table_info(historical_minutes)')]:
             conn.execute('ALTER TABLE historical_minutes ADD COLUMN volume REAL')

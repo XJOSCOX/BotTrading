@@ -15,7 +15,7 @@ class MonitorTests(unittest.TestCase):
         latest = pd.DataFrame({"id": [2], "time": [pd.Timestamp.now(tz="UTC")], "price": [101.0]})
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store, "DB_PATH", Path(folder)/"test.db"), patch.object(bot_monitor, "alert_history", return_value=[]), patch.object(bot_monitor, "chart_history", return_value=pd.DataFrame()), patch.object(bot_monitor, "price_history_for_symbol", return_value=history), patch.object(bot_monitor, "ticks_for_symbol", return_value=latest), patch.object(bot_monitor, "evaluate_strategy_status", return_value={"signal": {"signal": "WAIT"}}) as evaluate:
             bot_monitor.monitor_once()
-            self.assertEqual(evaluate.call_count, 15)
+            self.assertEqual(evaluate.call_count, len(bot_monitor.SYMBOLS)*len(bot_monitor.STRATEGIES))
             for call in evaluate.call_args_list:
                 self.assertEqual(call.args[3].iloc[-1]["price"], 101.0)
             self.assertTrue(all(r["feed_fresh"] for r in bot_monitor.read_status().values()))
@@ -32,7 +32,7 @@ class MonitorTests(unittest.TestCase):
             ]):
                 bot_monitor.monitor_once()
                 self.assertEqual(history.call_count, 4)
-                self.assertEqual(evaluate_mock.call_count, 16)
+                self.assertEqual(evaluate_mock.call_count, len(bot_monitor.SYMBOLS)*len(bot_monitor.STRATEGIES)+1)
                 for call in evaluate_mock.call_args_list:
                     self.assertEqual(call.kwargs["allow_new"], call.args[0] in bot_monitor.SYMBOLS)
             records = bot_monitor.read_status()
@@ -55,7 +55,7 @@ class MonitorTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store,"DB_PATH",Path(folder)/"test.db"), patch.object(bot_monitor,"market_session",side_effect=clock), patch.object(bot_monitor,"price_history_for_symbol",side_effect=history), patch.object(bot_monitor,"chart_history",return_value=pd.DataFrame()), patch.object(bot_monitor,"alert_history",return_value=[]), patch.object(bot_monitor,"evaluate_strategy_status",return_value={"signal":{"signal":"WAIT"}}):
             bot_monitor.monitor_once()
         self.assertEqual(events[:3],["history"]*3)
-        self.assertEqual(events.count("clock"),15)
+        self.assertEqual(events.count("clock"),len(bot_monitor.SYMBOLS)*len(bot_monitor.STRATEGIES))
 
 
 if __name__ == "__main__":

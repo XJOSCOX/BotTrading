@@ -7,7 +7,7 @@ from goxtrade.bot import bot_controls
 from goxtrade.execution import practice_safety
 from goxtrade.bot import bot_audit
 from goxtrade.ui.execution import live_theme
-from goxtrade.strategies.strategy_catalog import STRATEGIES
+from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec
 from goxtrade.ui.bot.bot_workspace import table
 from goxtrade.ui.bot.bot_view import ct
 from goxtrade.execution.executed_results import results, summary
@@ -55,7 +55,8 @@ def controls():
         enable_mym = st.checkbox("Enable MYM trading",value=settings.get("enable_mym") is True,key="leader_enable_mym",help="Applies to new leader entries when saved. Existing positions remain managed.")
         mym = st.number_input("MYM contracts",1,4,settings.get("quantities",{}).get("MYM",3))
         cooldown = st.number_input("Leader cooldown (minutes)",1,60,policy["cooldown_minutes"])
-        strategies = st.multiselect("Leader strategies",STRATEGIES,default=policy["strategies"])
+        eligible = [name for name in STRATEGIES if "leader" in strategy_spec(name).execution_profiles]
+        strategies = st.multiselect("Leader strategies",eligible,default=[name for name in policy["strategies"] if name in eligible])
         if st.form_submit_button("Save leader settings",icon=":material/save:"):
             invoke("configure",quantities=dict(MNQ=mnq,MES=mes,MYM=mym),strategies=strategies,cooldown=cooldown,enable_mym=enable_mym)
     st.caption("One position per symbol, up to three symbols. First entry: selected size; additional symbols: 1 contract each. Strategy-based exits.")

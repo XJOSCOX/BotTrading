@@ -26,15 +26,28 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
             price = float(tick["price"])
             long = active["signal"] == "LONG"
             adaptive = active.get("exit_mode") == MODE
+            custom_trail = active.get("exit_mode") in ("trailing", "breakeven")
             stopped = price <= active["stop"] if long else price >= active["stop"]
             targeted = price >= active["target"] if long else price <= active["target"]
             structure_exit = None
+            if custom_trail and not stopped:
+                sign = 1 if long else -1
+                risk = abs(active["entry"]-active["initial_stop"])
+                favorable = (price-active["entry"])*sign
+                if active["exit_mode"] == "breakeven" and favorable >= risk*active.get("breakeven_r", 1):
+                    active["stop"] = max(active["stop"], active["entry"]) if long else min(active["stop"], active["entry"])
+                    active["management_status"] = "Break-even stop armed"
+                if active["exit_mode"] == "trailing" and favorable >= risk*active.get("trail_start_r", 1.5):
+                    from goxtrade.market.instruments import round_tick
+                    level = round_tick(price-sign*active["trail_ticks"]*active["tick_size"], active["tick_size"], up=not long)
+                    active["stop"] = max(active["stop"], level) if long else min(active["stop"], level)
+                    active["management_status"] = "Trailing tick structure"
             if adaptive and not stopped:
                 structure_exit = update_exit(active, management_bars or [], dict(tick))
                 stopped = price <= active["stop"] if long else price >= active["stop"]
                 if targeted:
                     active["target_reached"] = True
-            if stopped or structure_exit or (targeted and not adaptive):
+            if stopped or structure_exit or (targeted and not adaptive and active.get("exit_mode") != "trailing"):
                 state["exit"] = ("Trailing stop reached" if adaptive and active["stop"] != active["initial_stop"] else "Stop reached") if stopped else (structure_exit or "Target reached")
                 state["closed_management"] = dict(active)
                 state['exit_price'] = price
@@ -51,7 +64,7 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
         valid = valid and (stop < entry < target if candidate["signal"] == "LONG" else target < entry < stop)
         if valid and ticks:
             active = dict(candidate)
-            if active.get("exit_mode") == MODE:
+            if active.get("exit_mode") in (MODE, "trailing", "breakeven"):
                 active.update(initial_stop=active["stop"], management_started_at=datetime.now(timezone.utc).isoformat(),
                               management_status="Holding / original stop", trail_armed=False, structure_breaks=0)
             state.update(active=active, cursor=ticks[-1]["id"], exit=None, event_id=None)
@@ -81,9 +94,15 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
     with closing(connect()) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS signal_lifecycle (symbol TEXT, strategy TEXT, state TEXT, PRIMARY KEY(symbol, strategy))")
         init_alert_history(conn)
+        if candidate.get("unique_setup_id"):
+            conn.execute("CREATE TABLE IF NOT EXISTS strategy_event_consumption (setup_id TEXT PRIMARY KEY, alert_id INTEGER)")
+            conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT state FROM signal_lifecycle WHERE symbol=? AND strategy=?", (symbol, strategy)).fetchone()
         state = json.loads(row["state"]) if row else {}
+        event = candidate.get("unique_setup_id")
+        if event and conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone():
+            allow_new = False
         if state.get("active"):
             ticks = conn.execute(f"SELECT id, price,event_time,received_at FROM live_ticks WHERE symbol=? AND id>? AND {price_predicate(symbol)} ORDER BY id", (symbol, state["cursor"])).fetchall()
         else:
@@ -95,7 +114,9 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
                       'observed_at':datetime.now(timezone.utc).isoformat(), 'entry_time':None if state.get('active') else datetime.now(timezone.utc).isoformat()}
             cur = conn.execute('INSERT INTO bot_alert_history (record) VALUES (?)', (json.dumps(record),))
             updated['event_id'] = cur.lastrowid
-            bot_audit.emit(f"signal:{updated['event_id']}:entry", "Signal detected", f"{symbol} / {strategy} / {active['signal']} / {active.get('trigger_detail', active.get('reason'))}", updated['event_id'], conn=conn)
+            if event:
+                conn.execute("INSERT OR IGNORE INTO strategy_event_consumption VALUES (?,?)", (event, cur.lastrowid))
+            bot_audit.emit(f"signal:{updated['event_id']}:entry", "Signal detected", f"{symbol} / {strategy} / {active.get('raw_signal', active['signal'])} / {active.get('trigger_detail', active.get('reason'))}", updated['event_id'], notify=active.get('strategy_id') == 'vwap_ema_cross' and active.get('config_snapshot', {}).get('notify_signals', False), conn=conn)
         if state.get('active') and not updated.get('active') and updated.get('event_id'):
             row = conn.execute('SELECT record FROM bot_alert_history WHERE id=?', (updated['event_id'],)).fetchone()
             record = json.loads(row['record'])

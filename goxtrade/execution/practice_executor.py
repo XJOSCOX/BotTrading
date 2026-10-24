@@ -21,6 +21,7 @@ from goxtrade.strategies import volatility_guard
 from goxtrade.strategies import entry_confirmation
 from goxtrade.bot import bot_health
 from goxtrade.config.execution_target import PROFILE, TARGET, assert_other_idle
+from goxtrade.strategies.strategy_catalog import execution_block
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -89,6 +90,8 @@ def save_job(job):
 
 
 def claim(job):
+    if execution_block(job, PROFILE):
+        return False
     with closing(db()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         assert_other_idle(conn)
@@ -216,6 +219,9 @@ def set_mym_enabled(enabled):
 
 
 def build_order(signal, contract, quantity, max_loss=None):
+    blocked = execution_block(signal, PROFILE)
+    if blocked:
+        raise ValueError(blocked)
     micro, symbol_id, tick_size, point_value = MICROS[signal["symbol"]]
     if contract.get("symbolId") != symbol_id or contract.get("activeContract") is not True:
         raise ValueError("Not the active micro contract")
@@ -459,6 +465,11 @@ def cycle(token):
     seen = {j["alert_id"] for j in jobs}
     results = read_status()
     for signal in sorted(history.values(), key=lambda r: r["id"]):
+        permission_error = execution_block(signal, PROFILE)
+        if permission_error:
+            if signal.get("status") == "Active":
+                bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", permission_error, signal["id"])
+            continue
         if not symbol_enabled(signal["symbol"], settings):
             if signal["status"] == "Active":
                 bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", "Micro symbol not activated", signal["id"])
@@ -518,6 +529,10 @@ def cycle(token):
             status(f"Signal skipped: {error}")
             continue
         job = dict(alert_id=signal["id"], symbol=micro, contract_id=contract["id"], quantity=payload["size"],
+                   strategy=signal["strategy"],strategy_id=signal.get("strategy_id"),entry_mode=signal.get("entry_mode","CONFIRMED"),
+                   signal_minutes=signal.get("signal_minutes",15),unique_setup_id=signal.get("unique_setup_id"),
+                   config_snapshot=signal.get("config_snapshot"),account_profile=PROFILE,
+                   initial_risk_usd=abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"],
                    signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
                    sizing_reason="Overnight: capped at 1 contract" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
@@ -576,6 +591,10 @@ def cycle(token):
                 bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
                 return
             confirmation = entry_confirmation.check(current_signal)
+            if execution_block(current_signal, PROFILE):
+                job.update(state="Rejected", error_message="Not submitted: strategy execution eligibility changed")
+                save_job(job)
+                return
             if confirmation["state"] != "Confirmed" or not entry_confirmation.window_open(current_signal):
                 job.update(state="Rejected", error_message=f"Not submitted: {confirmation['reason']}")
                 save_job(job)

@@ -5,7 +5,7 @@ from unittest.mock import patch
 from goxtrade.data import live_store
 from goxtrade.bot import bot_controls
 from goxtrade.strategies import strategy_settings
-from goxtrade.strategies.strategy_catalog import STRATEGIES
+from goxtrade.strategies.strategy_catalog import STRATEGIES, LEGACY_STRATEGIES
 
 
 class StrategySettingsTests(unittest.TestCase):
@@ -22,8 +22,10 @@ class StrategySettingsTests(unittest.TestCase):
     def test_new_strategies_require_explicit_account_selection(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store,"DB_PATH",Path(folder)/"test.db"):
             self.assertEqual(bot_controls.read("leader")["strategies"],["CRT","Reversal"])
-            bot_controls.save(["MNQ","MES"],list(STRATEGIES),5,profile="leader")
-            self.assertEqual(bot_controls.read("leader")["strategies"],list(STRATEGIES))
+            bot_controls.save(["MNQ","MES"],list(LEGACY_STRATEGIES),5,profile="leader")
+            self.assertEqual(bot_controls.read("leader")["strategies"],list(LEGACY_STRATEGIES))
+            with self.assertRaises(ValueError):
+                bot_controls.save(["MNQ"],list(STRATEGIES),5,profile="leader")
             self.assertEqual(bot_controls.read("practice")["strategies"],["CRT","Reversal"])
 
     def test_shared_orb_window_validation_and_persistence(self):

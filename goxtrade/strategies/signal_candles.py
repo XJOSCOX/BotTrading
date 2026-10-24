@@ -2,9 +2,13 @@
 import pandas as pd
 
 
-def signal_candles(minutes, now, interval=15):
+def signal_candles(minutes, now, interval=15, strict=False):
+    if type(interval) is not int or not 1 <= interval <= 60:
+        raise ValueError("Candle interval must be 1-60 minutes")
     frame = minutes.copy()
     frame["time"] = pd.to_datetime(frame["time"],utc=True)
+    if strict and frame["time"].duplicated().any():
+        raise ValueError("Duplicate source minutes")
     frame = frame.loc[frame["time"]+pd.Timedelta(minutes=1)<=pd.Timestamp(now)].sort_values("time").drop_duplicates("time",keep="last")
     rows = []
     for stamp, group in frame.groupby(frame["time"].dt.floor(f"{interval}min")):

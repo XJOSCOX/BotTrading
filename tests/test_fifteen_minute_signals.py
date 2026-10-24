@@ -3,6 +3,7 @@ from unittest.mock import patch
 import pandas as pd
 from goxtrade.bot import bot_monitor
 from goxtrade.strategies.signal_candles import signal_candles
+from goxtrade.strategies.strategy_catalog import LEGACY_STRATEGIES
 from goxtrade.strategies.continuation_strategies import evaluate_orb, evaluate_vwap, evaluate_ema_pullback
 from tests.test_continuation_strategies import bars, mirror
 
@@ -48,7 +49,7 @@ class FifteenMinuteTests(unittest.TestCase):
         ticks=pd.DataFrame([dict(time=now,price=107.)])
         session=dict(time=now,is_open=True,name="Regular")
         with patch('goxtrade.bot.signal_lifecycle.management_timeframe',return_value=5),patch.object(bot_monitor,"read_stop_minutes",return_value=5),patch.object(bot_monitor,"read_orb_minutes",return_value=15),patch.object(bot_monitor,"track_signal",side_effect=lambda s,t,c,i,a,b:c) as track:
-            for strategy in bot_monitor.STRATEGIES:
+            for strategy in LEGACY_STRATEGIES:
                 result=bot_monitor.evaluate_strategy_status("NQ=F",strategy,session,ticks,candles_1m=frame)
                 self.assertEqual(result["timeframe"],"15 min")
                 self.assertEqual(result["signal"]["signal_minutes"],15)

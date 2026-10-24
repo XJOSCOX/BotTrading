@@ -1,6 +1,26 @@
 """Shared watch settings; account execution permissions live in bot_controls."""
 from contextlib import closing
 from goxtrade.data.live_store import connect
+from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
+import json
+
+
+def read_vwap_ema_config():
+    with closing(connect()) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategy_parameters'").fetchone():
+            return VwapEmaConfig()
+        row = conn.execute("SELECT record FROM strategy_parameters WHERE strategy_id='vwap_ema_cross'").fetchone()
+    return VwapEmaConfig.from_dict(json.loads(row[0])) if row else VwapEmaConfig()
+
+
+def save_vwap_ema_config(values):
+    config = VwapEmaConfig.from_dict(values)
+    with closing(connect()) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS strategy_parameters (strategy_id TEXT PRIMARY KEY, record TEXT NOT NULL)")
+        conn.execute("INSERT INTO strategy_parameters VALUES (?,?) ON CONFLICT(strategy_id) DO UPDATE SET record=excluded.record",
+                     ("vwap_ema_cross", json.dumps(config.to_dict())))
+        conn.commit()
+    return config
 
 
 def read_stop_minutes():
