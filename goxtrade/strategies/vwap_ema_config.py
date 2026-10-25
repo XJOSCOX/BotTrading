@@ -18,6 +18,9 @@ class VwapEmaConfig:
     paper_enabled: bool = False
     paper_quantity: int = 1
     paper_commission_per_side: float = 0.
+    paper_zero_cost_sensitivity: bool = False
+    paper_max_initial_risk_usd: float = 0.
+    paper_min_effective_rr: float = 0.
     paper_slippage_ticks: float = 1.
     entry_mode: str = "CONFIRMED"
     signal_minutes: int = 3

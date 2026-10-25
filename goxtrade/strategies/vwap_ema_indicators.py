@@ -84,6 +84,8 @@ def indicator_frame(minutes, now, config=None, sequence=None):
     config = VwapEmaConfig.from_dict(config)
     now = utc_time(now)
     source = validate_minutes(minutes.loc[pd.to_datetime(minutes["time"], utc=True) <= now.floor("min")])
+    if "complete" in source:
+        source = source.loc[source["complete"].eq(True) | source["time"].eq(now.floor("min"))]
     bars = signal_candles(source, now, config.signal_minutes, strict=True)
     bars["provisional"] = False
     interval = pd.Timedelta(minutes=config.signal_minutes)
@@ -119,8 +121,9 @@ def indicator_frame(minutes, now, config=None, sequence=None):
         covered = group["closed_at"].le(first_gap) | (group["provisional"] & (first_gap >= now.floor("min") + pd.Timedelta(minutes=1)))
         covered &= group["time"].ge(anchor)
         covered &= open_minutes(pd.DatetimeIndex(group["time"]), config)
-        volume = group["volume"].cumsum()
-        vwap = (price_source(group, config.vwap_source) * group["volume"]).cumsum() / volume.replace(0, float("nan"))
+        eligible = pd.Series(open_minutes(pd.DatetimeIndex(group["time"]), config), index=group.index)
+        volume = group["volume"].where(eligible, 0).cumsum()
+        vwap = (price_source(group, config.vwap_source) * group["volume"].where(eligible, 0)).cumsum() / volume.replace(0, float("nan"))
         bars.loc[group.index, "coverage"] = covered
         bars.loc[group.index, "vwap"] = vwap.where(covered)
     # EMA carries across scheduled closures, but restarts after missing open-market bars.

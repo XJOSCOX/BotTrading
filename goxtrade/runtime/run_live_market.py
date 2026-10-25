@@ -82,7 +82,10 @@ def run_connection(subscriptions) -> None:
 
     def on_open():
         logging.info("market hub connected")
+        from goxtrade.data.feed_coverage import opened
+        from goxtrade.data.live_store import utc_now
         for item in subscriptions:
+            opened(item["symbol"], item["contract_id"], utc_now())
             connection.invoke("SubscribeContractQuotes", [item["contract_id"]])
             connection.invoke("SubscribeContractTrades", [item["contract_id"]])
 
@@ -109,6 +112,10 @@ def run_connection(subscriptions) -> None:
         except Exception:
             logging.warning("Connection cleanup failed")
         writer.close()
+        from goxtrade.data.feed_coverage import closed
+        from goxtrade.data.live_store import utc_now
+        for item in subscriptions:
+            closed(item["symbol"], item["contract_id"], writer.gap_at or utc_now())
 
 
 def trade_payloads(payload):

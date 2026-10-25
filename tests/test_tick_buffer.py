@@ -37,6 +37,20 @@ class TickBufferTests(unittest.TestCase):
             self.assertTrue(buffer.add("trade","YM=F","ym",{}))
             self.assertFalse(buffer.add("trade","YM=F","ym",{}))
             self.assertTrue(disconnected.is_set())
+            self.assertIsNotNone(buffer.gap_at)
+
+    def test_failed_batch_retains_earliest_lost_receipt(self):
+        disconnected = Event()
+        buffer = TickBuffer(disconnected)
+        first = "2026-10-01T15:00:01+00:00"
+        buffer.queue.put(("trade", "NQ=F", "nq", {}, first))
+        buffer.queue.put(("trade", "NQ=F", "nq", {}, "2026-10-01T15:00:02+00:00"))
+        with patch("goxtrade.data.tick_buffer.write_batch", side_effect=RuntimeError("disk unavailable")):
+            buffer.start()
+            buffer.worker.join(timeout=5)
+        self.assertFalse(buffer.worker.is_alive())
+        self.assertEqual(buffer.gap_at, first)
+        self.assertTrue(disconnected.is_set())
 
     def test_fresh_arrival_does_not_make_old_market_timestamp_fresh(self):
         now = datetime(2026,9,17,12,3,tzinfo=timezone.utc)

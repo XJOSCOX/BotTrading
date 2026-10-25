@@ -94,6 +94,8 @@ def evaluate_indicator_entry(signal, minutes, price, now):
     if signal.get("signal") not in ("LONG", "SHORT"):
         return result("Cancelled", "Invalid indicator direction")
     config = VwapEmaConfig.from_dict(signal.get("config_snapshot"))
+    if minutes.attrs.get("contract_id") != signal.get("source_contract"):
+        return result("Cancelled", "Indicator history contract no longer matches the detected setup")
     if any(value is None or not math.isfinite(float(value)) for value in (price, signal.get("stop"), signal.get("target"))):
         return result("Waiting", "Valid executable price and protective levels are required")
     long = signal["signal"] == "LONG"
@@ -137,6 +139,11 @@ def evaluate_indicator_entry(signal, minutes, price, now):
 
 def check(signal, now=None):
     now = now or datetime.now(timezone.utc)
+    if signal.get("entry_policy") == "indicator-event-v1":
+        from goxtrade.market.calendar_guard import entry_block
+        blocked = entry_block(now)
+        if blocked:
+            return dict(state="Waiting", reason=blocked, price=None)
     with closing(connect()) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS entry_confirmations (profile TEXT, alert_id INTEGER, state TEXT, reason TEXT, PRIMARY KEY(profile,alert_id))")
         row = conn.execute("SELECT state,reason FROM entry_confirmations WHERE profile=? AND alert_id=?",(PROFILE,signal["id"])).fetchone()

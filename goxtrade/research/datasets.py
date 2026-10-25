@@ -23,10 +23,13 @@ def validate_dataset(minutes, contract_id, rollover_policy="single_contract"):
     if rollover_policy != "single_contract":
         raise UnsupportedDataset("Only single-contract datasets are supported; select separate runs around a rollover")
     frame = validate_minutes(minutes)
-    if "contract_id" in frame and set(frame["contract_id"].dropna().unique()) != {contract_id}:
+    if (minutes.attrs.get("contract_id", contract_id) != contract_id
+            or "contract_id" in frame and (frame["contract_id"].isna().any() or set(frame["contract_id"].unique()) != {contract_id})):
         raise UnsupportedDataset("Mixed or mismatched contracts cannot be treated as one continuous price series")
     if frame.empty:
         raise ValueError("No historical OHLCV data in the selected range")
+    if "complete" in frame and not frame["complete"].eq(True).all():
+        raise UnsupportedDataset("Research requires finalized minute bars; partial or unverified capture is present")
     frame.attrs.update(minutes.attrs)
     frame.attrs["contract_id"] = contract_id
     return frame
@@ -42,6 +45,8 @@ def validate_ticks(ticks, contract_id):
     if ticks is None or not required <= set(ticks.columns):
         raise UnsupportedDataset("This entry mode requires ordered intrabar trades with time, sequence, price, and volume")
     frame = ticks.copy()
+    if "event_type" in frame and not frame["event_type"].eq("trade").all():
+        raise UnsupportedDataset("Intrabar replay accepts trade observations, not quote updates")
     if frame.empty or any(pd.Timestamp(value).tzinfo is None for value in frame["time"]):
         raise UnsupportedDataset("Timezone-aware trade observations are required")
     frame["time"] = pd.to_datetime(frame["time"], utc=True)
@@ -55,4 +60,8 @@ def validate_ticks(ticks, contract_id):
         raise UnsupportedDataset("Trade observations must be valid, unique, and chronologically sequenced")
     if "contract_id" in frame and set(frame["contract_id"].unique()) != {contract_id}:
         raise UnsupportedDataset("Intrabar trades do not match the selected contract")
+    if ticks.attrs.get("contract_id", contract_id) != contract_id:
+        raise UnsupportedDataset("Intrabar provenance does not match the selected contract")
+    if "event_id" in frame and (frame["event_id"].isna().any() or frame["event_id"].duplicated().any()):
+        raise UnsupportedDataset("Duplicate or missing provider trade identities")
     return frame.reset_index(drop=True)

@@ -56,6 +56,8 @@ def population(test_type):
             sim = result["simulation"]
             context = (f"Run #{run['id']} / OHLCV {result['dataset_hash'][:12]} / ticks {result.get('tick_dataset_hash', '--')[:12]} / "
                        f"{result['start']} to {result['end']} / qty {sim['quantity']} / fee-side {sim['commission_per_side']} / slip {sim['slippage_ticks']} ticks")
+            if sim.get("commission_per_side") == 0:
+                context += " / explicit zero-cost sensitivity" if sim.get("zero_cost_sensitivity") else " / UNVERIFIED legacy zero fees"
             rows.extend({**row, "run_id": run["id"], "comparison_context": context} for row in result["trades"])
         return rows
     if test_type == "forward_paper":

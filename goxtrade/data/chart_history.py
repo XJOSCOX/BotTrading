@@ -21,11 +21,19 @@ def backfill_history(symbol):
     if not response.get('success'):
         raise RuntimeError('Historical data request failed')
     bars = response.get('bars') or []
+    from goxtrade.strategies.vwap_ema_indicators import validate_minutes
+    if any(b.get('contractId', contract) != contract for b in bars):
+        raise ValueError('Historical response contract does not match the request')
+    validated = validate_minutes(pd.DataFrame([dict(time=b['t'],open=b['o'],high=b['h'],low=b['l'],close=b['c'],volume=b.get('v'))
+                                             for b in bars], columns=['time','open','high','low','close','volume']))
+    validated = validated.loc[validated['time']+pd.Timedelta(minutes=1) <= end]
+    bars = [dict(t=row.time,o=row.open,h=row.high,l=row.low,c=row.close,v=row.volume) for row in validated.itertuples()]
     with closing(connect()) as conn:
         from goxtrade.data.strategy_history import initialize
         initialize(conn)
-        conn.executemany("INSERT OR REPLACE INTO strategy_historical_minutes VALUES (?,?,?,?,?,?,?,?)",
-                         [(symbol, contract, pd.Timestamp(b['t']).tz_convert('UTC').floor('min').isoformat(), b['o'], b['h'], b['l'], b['c'], b.get('v'))
+        retrieved = datetime.now(timezone.utc).isoformat()
+        conn.executemany("INSERT OR REPLACE INTO strategy_historical_minutes (symbol,contract_id,time,open,high,low,close,volume,retrieved_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                         [(symbol, contract, pd.Timestamp(b['t']).tz_convert('UTC').isoformat(), b['o'], b['h'], b['l'], b['c'], b.get('v'), retrieved)
                           for b in bars if pd.Timestamp(b['t']) < end])
         conn.execute('CREATE TABLE IF NOT EXISTS historical_minutes (symbol TEXT,time TEXT,open REAL,high REAL,low REAL,close REAL,PRIMARY KEY(symbol,time))')
         if 'volume' not in [r[1] for r in conn.execute('PRAGMA table_info(historical_minutes)')]:

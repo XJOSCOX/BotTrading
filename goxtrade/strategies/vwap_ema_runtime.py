@@ -11,7 +11,14 @@ from goxtrade.strategies.vwap_ema_cross import evaluate_vwap_ema_cross
 
 
 def evaluate_status(symbol, strategy, session, allow_new=True):
-    config = read_vwap_ema_config()
+    configuration_error = None
+    try:
+        config = read_vwap_ema_config()
+    except (ValueError, KeyError, TypeError) as error:
+        from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
+        config = VwapEmaConfig(monitor_enabled=False)
+        configuration_error = f"Invalid strategy settings: {error}. New entries disabled; existing signal exits remain monitored."
+        allow_new = False
     contract = contract_for_symbol(symbol)
     now = pd.Timestamp(session["time"])
     minutes = load_strategy_minutes(symbol, contract, now)
@@ -22,16 +29,24 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
         for field in ("event_time", "received_at")
     )
     identity = f"vwap_ema_cross|{symbol}|{contract}|{config.fingerprint}"
-    previous = strategy_events.observation(identity)
+    persisted_previous = strategy_events.observation(identity)
+    previous = dict(persisted_previous)
+    prior_event = strategy_events.latest_event(symbol, contract)
+    if prior_event and (not previous.get("last_signal_at") or pd.Timestamp(prior_event["detected_at"]) > pd.Timestamp(previous["last_signal_at"])):
+        previous.update(last_signal_at=prior_event["detected_at"], last_event_id=prior_event["unique_setup_id"])
     candidate, candles, updated = evaluate_vwap_ema_cross(
         minutes, tick["price"] if tick else None, now, config, previous,
         sequence=tick["id"] if tick else None, quote_time=tick["event_time"] if fresh else None,
         symbol=symbol,
     )
     candidate.update(symbol=symbol, source_contract=contract)
-    persisted = strategy_events.persist(identity, previous, updated, candidate)
+    if configuration_error:
+        candidate["reason"] = candidate["trigger_detail"] = configuration_error
+    persisted = strategy_events.persist(identity, persisted_previous, updated, candidate)
     if persisted is None:
-        candidate.update(signal="WAIT", entry=None, stop=None, target=None,
+        allow_new = False
+        candidate.update(signal="WAIT", raw_signal="WAIT", direction=None, unique_setup_id=None, crossover_key=None,
+                         entry=None, stop=None, target=None,
                          reason="Observation advanced concurrently; waiting for the next trade snapshot.")
     else:
         candidate = persisted
@@ -39,9 +54,14 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
     if candidate.get("raw_signal", "").startswith("ANTICIPATED_"):
         candidate["signal"] = candidate["direction"]
         candidate["execution_direction_mapping"] = "Explicit Practice-only mapping from " + candidate["raw_signal"]
+    management_times = pd.to_datetime(minutes["time"], utc=True, errors="coerce")
+    management_source = minutes.loc[management_times+pd.Timedelta(minutes=1) <= now].copy()
+    management_source["time"] = management_times.loc[management_source.index]
+    if "complete" in management_source:
+        management_source = management_source.loc[management_source["complete"].eq(True)]
     management = [{**row, "time": row["time"].isoformat(),
                    "closed_at": (row["time"]+pd.Timedelta(minutes=1)).isoformat()}
-                  for row in minutes.loc[minutes["time"]+pd.Timedelta(minutes=1) <= now].to_dict("records")]
+                  for row in management_source.to_dict("records")]
     signal = track_signal(symbol, strategy, candidate, candidate.get("unique_setup_id"),
                           allow_new and config.monitor_enabled and session["is_open"] and fresh,
                           management)

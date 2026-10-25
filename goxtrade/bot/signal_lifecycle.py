@@ -24,6 +24,13 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
                 continue
             state["cursor"] = tick["id"]
             price = float(tick["price"])
+            if active.get("strategy_id") == "vwap_ema_cross":
+                from goxtrade.strategies.adaptive_exit import timestamp
+                stamp = timestamp(dict(tick).get("event_time") or dict(tick).get("received_at"))
+                entered = timestamp(active.get("management_started_at") or active.get("detected_at"))
+                if (stamp is None or entered is None or stamp < entered or stamp > datetime.now(timezone.utc).timestamp()
+                        or not math.isfinite(price) or price <= 0):
+                    continue
             long = active["signal"] == "LONG"
             adaptive = active.get("exit_mode") == MODE
             custom_trail = active.get("exit_mode") in ("trailing", "breakeven")
@@ -67,6 +74,8 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
             if active.get("exit_mode") in (MODE, "trailing", "breakeven"):
                 active.update(initial_stop=active["stop"], management_started_at=datetime.now(timezone.utc).isoformat(),
                               management_status="Holding / original stop", trail_armed=False, structure_breaks=0)
+            if active.get("strategy_id") == "vwap_ema_cross":
+                active["management_started_at"] = active.get("detected_at") or datetime.now(timezone.utc).isoformat()
             state.update(active=active, cursor=ticks[-1]["id"], exit=None, event_id=None)
         else:
             state["exit"] = "Setup already beyond its exit levels"
@@ -94,13 +103,20 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
     with closing(connect()) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS signal_lifecycle (symbol TEXT, strategy TEXT, state TEXT, PRIMARY KEY(symbol, strategy))")
         init_alert_history(conn)
-        if candidate.get("unique_setup_id"):
+        if candidate.get("unique_setup_id") or candidate.get("crossover_key"):
             conn.execute("CREATE TABLE IF NOT EXISTS strategy_event_consumption (setup_id TEXT PRIMARY KEY, alert_id INTEGER)")
             conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT state FROM signal_lifecycle WHERE symbol=? AND strategy=?", (symbol, strategy)).fetchone()
         state = json.loads(row["state"]) if row else {}
-        event = candidate.get("unique_setup_id")
+        event = candidate.get("crossover_key") or candidate.get("unique_setup_id")
+        if (allow_new and not state.get("active") and setup_id != state.get("seen") and candidate.get("crossover_key")
+                and not conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone()):
+            from goxtrade.strategies.strategy_catalog import crossover_key
+            for prior in conn.execute("SELECT c.alert_id,h.record FROM strategy_event_consumption c JOIN bot_alert_history h ON h.id=c.alert_id").fetchall():
+                if crossover_key(json.loads(prior[1])) == event:
+                    conn.execute("INSERT OR IGNORE INTO strategy_event_consumption VALUES (?,?)", (event, prior[0]))
+                    break
         if event and conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone():
             allow_new = False
         if state.get("active"):

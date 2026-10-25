@@ -17,7 +17,7 @@ def long_fixture():
 class BacktestTests(unittest.TestCase):
     def setUp(self):
         self.config = VwapEmaConfig(stop_method="fixed", management_method="fixed")
-        self.sim = SimulationConfig(slippage_ticks=0)
+        self.sim = SimulationConfig(slippage_ticks=0, commission_per_side=0., zero_cost_sensitivity=True)
 
     def run_model(self, frame, symbol="MNQ", config=None, simulation=None, **kwargs):
         return run_backtest(frame, symbol, "TEST.CONTRACT", strategy_config=config or self.config,

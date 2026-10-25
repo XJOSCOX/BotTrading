@@ -25,7 +25,7 @@ GROUPS = {
     "Anticipation": ("anticipation_distance_ticks", "anticipation_observations", "anticipation_min_slope_ticks"),
     "Stops & management": ("stop_method", "atr_length", "atr_multiple", "swing_bars", "fixed_stop_ticks", "reward_risk",
                            "management_method", "management_minutes", "trail_start_r", "trail_ticks", "breakeven_r"),
-    "Paper & notifications": ("paper_enabled", "paper_quantity", "paper_commission_per_side", "paper_slippage_ticks", "notify_signals", "notify_wait"),
+    "Paper & notifications": ("paper_enabled", "paper_quantity", "paper_commission_per_side", "paper_zero_cost_sensitivity", "paper_slippage_ticks", "paper_max_initial_risk_usd", "paper_min_effective_rr", "notify_signals", "notify_wait"),
 }
 
 
@@ -65,7 +65,10 @@ def configuration(config):
                         values[name] = input_field(name, getattr(config, name))
         if st.form_submit_button("Save VWAP settings", icon=":material/save:"):
             try:
-                save_vwap_ema_config(VwapEmaConfig.from_dict(values))
+                validated = VwapEmaConfig.from_dict(values)
+                if validated.paper_enabled and validated.paper_commission_per_side == 0 and not validated.paper_zero_cost_sensitivity:
+                    raise ValueError("Paper simulation requires entered commission or explicit zero-cost sensitivity")
+                save_vwap_ema_config(validated)
             except (ValueError, TypeError) as error:
                 st.error(str(error))
             else:
@@ -85,10 +88,22 @@ def live_detail(config):
     snapshot = result.get("indicator_snapshot", {})
     signal = result.get("signal", snapshot)
     contract = contract_for_symbol(symbol)
+    from goxtrade.execution.projectx_client import credentials_present
+    if st.button("Load contract session history", icon=":material/history:", key="vwap_recover_history", disabled=not credentials_present()):
+        from goxtrade.data.chart_history import backfill_history
+        from goxtrade.research.forward_paper import MICROS
+        try:
+            count = backfill_history(symbol)+backfill_history(MICROS.get(symbol, symbol))
+            st.success(f"Saved {count} validated contract-specific minute bars. No orders submitted.")
+        except Exception as error:
+            st.error(f"History recovery failed ({type(error).__name__}); existing data retained. Check the API connection.")
     now = pd.Timestamp.now(tz="UTC")
     tick = latest_trade(symbol, contract)
-    stamp = pd.Timestamp(tick["event_time"]) if tick else None
-    age = (now-stamp).total_seconds() if stamp is not None else None
+    stamp = pd.to_datetime(tick["event_time"], utc=True, errors="coerce") if tick else None
+    age = (now-stamp).total_seconds() if stamp is not None and pd.notna(stamp) else None
+    updated = pd.to_datetime(result.get("updated_at"), utc=True, errors="coerce")
+    if pd.isna(updated) or not 0 <= (now-updated).total_seconds() <= 10:
+        st.warning("Monitor snapshot is unavailable or stale. Displayed indicator values are not a current entry signal.")
     values = [("State", snapshot.get("raw_signal", "WAIT")), ("Mode", config.entry_mode),
               (f"EMA {config.ema_length}", snapshot.get("ema")), ("Session VWAP", snapshot.get("vwap")),
               ("EMA - VWAP", snapshot.get("indicator_distance")), ("Trade age", f"{age:.1f}s" if age is not None else "No trades")]
@@ -111,6 +126,9 @@ def live_detail(config):
 def render():
     st.subheader("VWAP EMA Cross")
     st.caption("Monitoring / Practice opt-in / Leader prohibited")
+    from goxtrade.market.calendar_guard import restriction
+    calendar = restriction(pd.Timestamp.now(tz="UTC"), required=True)
+    st.caption("Calendar: "+calendar["reason"])
     try:
         config = read_vwap_ema_config()
     except (ValueError, TypeError) as error:

@@ -15,7 +15,7 @@ from tests.vwap_fixtures import minutes
 
 class ForwardPaperTests(unittest.TestCase):
     def setUp(self):
-        self.config = VwapEmaConfig(paper_enabled=True, stop_method="fixed", management_method="fixed", paper_slippage_ticks=0.)
+        self.config = VwapEmaConfig(paper_enabled=True, paper_zero_cost_sensitivity=True, stop_method="fixed", management_method="fixed", paper_slippage_ticks=0.)
         self.minutes = minutes()
         self.now = self.minutes.iloc[-1]["time"]+pd.Timedelta(minutes=1)
         self.signal = evaluate_vwap_ema_cross(self.minutes, 103., self.now, self.config, historical=True)[0]
@@ -75,7 +75,7 @@ class TickResearchTests(unittest.TestCase):
             dict(time="2026-10-02T00:19:03Z", sequence=4, price=115., volume=1.),
         ])
         result = run_backtest(base, "MNQ", "TEST.CONTRACT", strategy_config=cfg,
-                              simulation=SimulationConfig(slippage_ticks=0), ticks=ticks)
+                              simulation=SimulationConfig(slippage_ticks=0, commission_per_side=0., zero_cost_sensitivity=True), ticks=ticks)
         self.assertEqual(result["tick_observations"], 4)
         self.assertEqual(len(result["trades"]), 1)
         self.assertEqual(result["trades"][0]["entry"], 106.)

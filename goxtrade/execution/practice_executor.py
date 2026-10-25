@@ -21,7 +21,7 @@ from goxtrade.strategies import volatility_guard
 from goxtrade.strategies import entry_confirmation
 from goxtrade.bot import bot_health
 from goxtrade.config.execution_target import PROFILE, TARGET, assert_other_idle
-from goxtrade.strategies.strategy_catalog import execution_block
+from goxtrade.strategies.strategy_catalog import order_block as execution_block, crossover_key
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -97,9 +97,27 @@ def claim(job):
         assert_other_idle(conn)
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
             signal = conn.execute("SELECT record FROM bot_alert_history WHERE id=?",(job["alert_id"],)).fetchone()
-            if signal and json.loads(signal[0]).get("status") != "Active":
+            if signal:
+                stored = json.loads(signal[0])
+                if stored.get("status") != "Active" or execution_block(stored, PROFILE):
+                    return False
+                if stored.get("strategy_id") == "vwap_ema_cross" and any(job.get(key) != stored.get(key)
+                        for key in ("strategy_id", "strategy", "unique_setup_id", "config_fingerprint", "entry_mode", "signal_minutes")):
+                    return False
+        event = job.get("crossover_key") or job.get("unique_setup_id")
+        if event:
+            conn.execute(f"CREATE TABLE IF NOT EXISTS {PROFILE}_entry_events (setup_id TEXT PRIMARY KEY,alert_id INTEGER NOT NULL)")
+            if conn.execute(f"SELECT 1 FROM {PROFILE}_entry_events WHERE setup_id=?", (event,)).fetchone():
                 return False
         active = [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {PROFILE}_jobs")]
+        if event:
+            for old in active:
+                if old.get("unique_setup_id") == job.get("unique_setup_id") or old.get("crossover_key") == event:
+                    return False
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
+                    saved = conn.execute("SELECT record FROM bot_alert_history WHERE id=?", (old["alert_id"],)).fetchone()
+                    if saved and crossover_key(json.loads(saved[0])) == event:
+                        return False
         active = [j for j in active if j["state"] not in ("Closed", "Rejected")]
         if overnight_policy.overnight() and (active or job.get("quantity",1)!=1):
             return False
@@ -115,6 +133,8 @@ def claim(job):
         job["account_id"] = ACCOUNT_ID
         inserted = conn.execute(f"INSERT OR IGNORE INTO {PROFILE}_jobs VALUES (?,?)", (job["alert_id"], json.dumps(job))).rowcount
         if inserted:
+            if event:
+                conn.execute(f"INSERT INTO {PROFILE}_entry_events VALUES (?,?)", (event, job["alert_id"]))
             bot_audit.emit(f"job:{job['alert_id']}:intent", "Entry intent", f"{job.get('quantity')} {job.get('symbol')} / signal {job.get('signal_entry')}", job["alert_id"], conn=conn)
         conn.commit()
         return bool(inserted)
@@ -227,6 +247,8 @@ def build_order(signal, contract, quantity, max_loss=None):
         raise ValueError("Not the active micro contract")
     if not str(contract.get("id", "")).startswith("CON.F.US." + micro + "."):
         raise ValueError("Contract ID is not an approved micro")
+    if signal.get("strategy_id") == "vwap_ema_cross" and str(signal.get("source_contract", "")).split(".")[-1] != contract["id"].split(".")[-1]:
+        raise ValueError("Indicator reference and executable micro contract expiries do not match")
     if type(quantity) is not int or not 1 <= quantity <= 4 or signal.get("signal") not in ("LONG", "SHORT"):
         raise ValueError("Invalid direction or quantity")
     entry, stop = float(signal["entry"]), float(signal.get("initial_stop", signal["stop"]))
@@ -532,6 +554,10 @@ def cycle(token):
                    strategy=signal["strategy"],strategy_id=signal.get("strategy_id"),entry_mode=signal.get("entry_mode","CONFIRMED"),
                    signal_minutes=signal.get("signal_minutes",15),unique_setup_id=signal.get("unique_setup_id"),
                    config_snapshot=signal.get("config_snapshot"),account_profile=PROFILE,
+                   entry_policy=signal.get("entry_policy"),config_fingerprint=signal.get("config_fingerprint"),
+                   crossover_key=signal.get("crossover_key"),reference_symbol=signal["symbol"],
+                   source_contract=signal.get("source_contract"),session_id=signal.get("session_id"),
+                   candle_time=signal.get("candle_time"),direction=signal.get("direction", signal["signal"]),
                    initial_risk_usd=abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"],
                    signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
@@ -540,7 +566,14 @@ def cycle(token):
         if not claim(job):
             continue
         try:
-            verify_account(token)
+            fresh_account = verify_account(token)
+            fresh_settings = snapshot()[0]
+            fresh_gate = practice_safety.check(fresh_account["balance"], fresh_settings.get("start_balance"), account_id=TARGET["gate_id"])
+            if fresh_gate["locked"]:
+                pause()
+                job.update(state="Rejected", error_message="Not submitted: account loss lock changed during preflight")
+                save_job(job)
+                return
             if not symbol_enabled(signal["symbol"], snapshot()[0]) or not bot_controls.enabled(signal["symbol"], signal["strategy"]):
                 job.update(state="Rejected", error_message="Not submitted: symbol disabled")
                 save_job(job)
@@ -573,11 +606,21 @@ def cycle(token):
             latest = read_status().get((signal["symbol"], signal["strategy"]), {})
             now = datetime.now(timezone.utc)
             current_signal = next((r for r in alert_history(10000) if r["id"] == signal["id"]), {})
+            if any(current_signal.get(key) != signal.get(key) for key in ("symbol", "strategy", "signal", "unique_setup_id", "config_fingerprint", "crossover_key")):
+                job.update(state="Rejected", error_message="Not submitted: claimed signal identity changed during preflight")
+                save_job(job)
+                return
             if not quote_fresh(latest, now) or not entry_confirmation.window_open(current_signal,now) or current_signal.get("status") != "Active" or not market_session()["is_open"]:
                 job.update(state="Rejected", error_message="Not submitted: signal or quote freshness changed during preflight")
                 save_job(job)
                 return
             fresh_history = alert_history(10000)
+            if any(r.get("status") == "Active" and r.get("symbol") == signal["symbol"]
+                   and r.get("signal") != current_signal.get("signal")
+                   and bot_controls.enabled(r["symbol"], r["strategy"]) for r in fresh_history):
+                job.update(state="Rejected", error_message="Not submitted: conflicting strategy appeared during preflight")
+                save_job(job)
+                return
             enabled = {r["strategy"] for r in fresh_history if bot_controls.enabled(signal["symbol"], r["strategy"])}
             blocked = overnight_policy.entry_block(current_signal, fresh_history, enabled, fresh_positions, fresh_orders, fresh_jobs, contract["id"], own_alert=job["alert_id"])
             if blocked or payload["size"] > overnight_policy.quantity(payload["size"]):
@@ -600,7 +643,14 @@ def cycle(token):
                 save_job(job)
                 return
             payload = build_order({**current_signal,"entry":confirmation["price"]}, contract, payload["size"])
+            if (not snapshot()[0].get("enabled") or not execution_schedule()["allow_entry"]
+                    or not quote_fresh(read_status().get((signal["symbol"], signal["strategy"]), {}), datetime.now(timezone.utc))
+                    or not entry_confirmation.window_open(current_signal)):
+                job.update(state="Rejected", error_message="Not submitted: pause, schedule or freshness changed at send boundary")
+                save_job(job)
+                return
             job.update(entry_confirmation=confirmation["reason"],confirmed_entry=confirmation["price"],stop_ticks=abs(payload["stopLossBracket"]["ticks"]))
+            job["initial_risk_usd"] = abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"]
             bot_audit.emit(f"confirmation:{signal['id']}", "Entry confirmed", confirmation["reason"], signal["id"])
             response = post("/api/Order/place", payload, token=token)
             job.update(state="Submitted" if response.get("success") is True else "Rejected",

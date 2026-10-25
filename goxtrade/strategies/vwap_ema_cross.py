@@ -8,6 +8,7 @@ from goxtrade.market.instruments import instrument
 from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
 from goxtrade.strategies.vwap_ema_indicators import indicator_frame, utc_time
 from goxtrade.strategies.vwap_ema_risk import risk_levels
+from goxtrade.strategies.strategy_catalog import crossover_key
 
 
 STRATEGY_ID = "vwap_ema_cross"
@@ -38,9 +39,12 @@ def optional_filters(frame, direction, price, now, config, tick):
     atr = float(last["atr"])
     baseline = frame.iloc[:-1].tail(config.volume_lookback)["volume"]
     threshold = max(config.separation_ticks*tick, config.separation_atr*atr if math.isfinite(atr) else 0)
-    distance = max(config.max_distance_ticks*tick, config.max_distance_atr*atr if math.isfinite(atr) else 0)
+    limits = ([config.max_distance_ticks*tick] if config.max_distance_ticks > 0 else [])
+    if config.max_distance_atr > 0:
+        limits.append(config.max_distance_atr*atr if math.isfinite(atr) else -1.)
+    distance = min(limits) if limits else 0.
     checks = (
-        ("separation", config.separation_enabled, abs(last["gap"]) >= threshold),
+        ("separation", config.separation_enabled, (config.separation_atr == 0 or math.isfinite(atr)) and abs(last["gap"]) >= threshold),
         ("ema_slope", config.ema_slope_enabled, (last["ema"]-prior["ema"])*sign > 0),
         ("vwap_slope", config.vwap_slope_enabled, (last["vwap"]-prior["vwap"])*sign > 0),
         ("volume", config.volume_enabled, len(baseline) == config.volume_lookback and last["volume"] >= baseline.mean()*config.volume_multiplier),
@@ -50,6 +54,10 @@ def optional_filters(frame, direction, price, now, config, tick):
     )
     return {name: ("passed" if bool(passed) else "failed") if enabled else "disabled"
             for name, enabled, passed in checks}
+
+
+def context_hash(frame):
+    return hashlib.sha256(frame[["time", "open", "high", "low", "close", "volume"]].to_csv(index=False, float_format="%.12g").encode()).hexdigest()
 
 
 def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, sequence=None,
@@ -62,6 +70,7 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
     base = dict(signal="WAIT", raw_signal="WAIT", reason="Waiting for initialized indicators.",
                 entry=None, stop=None, target=None, range_low=None, range_high=None,
                 last_close=price, strategy_id=STRATEGY_ID, strategy=STRATEGY_NAME,
+                symbol=symbol, source_contract=minutes.attrs.get("contract_id"),
                 signal_minutes=config.signal_minutes, entry_mode=config.entry_mode,
                 entry_policy="indicator-event-v1", entry_window_seconds=config.entry_window_seconds,
                 config_snapshot=config.to_dict(), config_fingerprint=config.fingerprint,
@@ -128,9 +137,15 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
             return waiting("No new trade observation.", frame)
         stamp = previous.get("time")
         continuous = bool(stamp) and 0 <= (now-utc_time(stamp)).total_seconds() <= config.max_data_age_seconds
+        finalized = frame.loc[~frame["provisional"]]
+        context_end = previous.get("context_end")
+        if context_end is None or context_hash(finalized.loc[finalized["time"] <= utc_time(context_end)]) != previous.get("context_hash"):
+            continuous = False
         old_gap = previous.get("gap") if continuous else None
         state.update(config_fingerprint=config.fingerprint, session_id=last["session_id"],
-                     sequence=int(sequence), time=now.isoformat(), gap=float(last["gap"]), convergence_count=0)
+                     sequence=int(sequence), time=now.isoformat(), gap=float(last["gap"]), convergence_count=0,
+                     ema=float(last["ema"]), price=float(last["close"]),
+                     context_end=finalized.iloc[-1]["time"].isoformat(), context_hash=context_hash(finalized))
         if old_gap is None:
             return waiting("Observation baseline established; waiting for a newly observed event.", frame)
         if config.entry_mode == "REALTIME":
@@ -139,8 +154,9 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
             approaching = abs(last["gap"]) < abs(old_gap) and old_gap*last["gap"] > 0
             proposed = "LONG" if last["gap"] < 0 else "SHORT"
             sign = 1 if proposed == "LONG" else -1
-            supporting = ((last["ema"]-prior["ema"])*sign > config.anticipation_min_slope_ticks*instrument(symbol).tick_size
-                          and (last["close"]-prior["close"])*sign > 0)
+            supporting = (previous.get("ema") is not None and previous.get("price") is not None
+                          and (last["ema"]-previous["ema"])*sign > config.anticipation_min_slope_ticks*instrument(symbol).tick_size
+                          and (last["close"]-previous["price"])*sign > 0)
             if approaching and supporting and abs(last["gap"]) <= config.anticipation_distance_ticks*instrument(symbol).tick_size:
                 count = previous.get("convergence_count", 0) + 1 if previous.get("anticipated_direction") == proposed else 1
                 state.update(convergence_count=count, anticipated_direction=proposed)
@@ -157,9 +173,11 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
                          last["session_id"], str(config.signal_minutes), config.entry_mode,
                          last["time"].isoformat(), direction))
     event_id = hashlib.sha256(identity.encode()).hexdigest()
-    last_signal = previous.get("last_signal_at")
-    if last_signal and previous.get("last_event_id") != event_id and (now-utc_time(last_signal)).total_seconds() < config.cooldown_minutes*60:
+    last_signal = state.get("last_signal_at")
+    if last_signal and state.get("last_event_id") != event_id and (now-utc_time(last_signal)).total_seconds() < config.cooldown_minutes*60:
         return waiting("Strategy crossover cooldown is active.", frame)
+    if config.entry_mode != "CONFIRMED" and previous.get("last_event_id") == event_id:
+        return waiting("This directional intrabar event was already detected.", frame)
     filters = optional_filters(frame, direction, price, now, config, instrument(symbol).tick_size)
     base["filter_results"] = filters
     failed = [name for name, result in filters.items() if result == "failed"]
@@ -176,7 +194,9 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
               f"Candle {last['time'].isoformat()}; detected {now.isoformat()}; sequence {sequence}.")
     state.update(last_event_id=event_id,
                  last_signal_at=last_signal if previous.get("last_event_id") == event_id else now.isoformat())
-    return {**base, **levels, "signal": raw_signal, "raw_signal": raw_signal, "direction": direction,
+    result = {**base, **levels, "signal": raw_signal, "raw_signal": raw_signal, "direction": direction,
             "setup_id": event_id, "unique_setup_id": event_id, "signal_timestamp": signal_at.isoformat(),
             "confirmed_at": signal_at.isoformat() if config.entry_mode == "CONFIRMED" else None, "classification": raw_signal,
-            "reason": detail, "trigger_detail": detail}, frame, state
+            "reason": detail, "trigger_detail": detail}
+    result["crossover_key"] = crossover_key(result)
+    return result, frame, state

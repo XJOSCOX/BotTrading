@@ -17,6 +17,8 @@ def initialize(conn):
     conn.execute("""CREATE TABLE IF NOT EXISTS strategy_historical_minutes (
         symbol TEXT,contract_id TEXT,time TEXT,open REAL,high REAL,low REAL,close REAL,volume REAL,
         PRIMARY KEY(symbol,contract_id,time))""")
+    if "retrieved_at" not in {row[1] for row in conn.execute("PRAGMA table_info(strategy_historical_minutes)")}:
+        conn.execute("ALTER TABLE strategy_historical_minutes ADD COLUMN retrieved_at TEXT")
     conn.execute("CREATE INDEX IF NOT EXISTS strategy_ticks_contract ON live_ticks(symbol,contract_id,id)")
     conn.commit()
 
@@ -81,22 +83,30 @@ def load_strategy_minutes(symbol, contract_id, now, hours=72, refresh=True):
     with closing(connect()) as conn:
         initialize(conn)
         trades = [dict(row) for row in conn.execute("SELECT time,open,high,low,close,volume,asof_time,last_sequence,invalid_volume FROM strategy_trade_minutes WHERE symbol=? AND contract_id=? AND time>=? ORDER BY time", (symbol, contract_id, cutoff))]
-        saved = [dict(row) for row in conn.execute("SELECT time,open,high,low,close,volume FROM strategy_historical_minutes WHERE symbol=? AND contract_id=? AND time>=? ORDER BY time", (symbol, contract_id, cutoff))]
+        saved = [dict(row) for row in conn.execute("SELECT time,open,high,low,close,volume,retrieved_at FROM strategy_historical_minutes WHERE symbol=? AND contract_id=? AND time>=? ORDER BY time", (symbol, contract_id, cutoff))]
+        from goxtrade.data.feed_coverage import windows
+        coverage = windows(conn, symbol, contract_id)
     by_time = {}
     for row in trades:
         if row.pop("invalid_volume"):
             row["volume"] = float("nan")
         if pd.Timestamp(row["asof_time"]) <= now:
+            stamp = pd.Timestamp(row["time"])
+            row["complete"] = stamp+pd.Timedelta(minutes=1) <= now and any(
+                stamp >= start.ceil("min") and stamp+pd.Timedelta(minutes=1) <= (end if end is not None else now)
+                for start, end in coverage)
             by_time[pd.Timestamp(row["time"])] = row
     for row in saved:
         stamp = pd.Timestamp(row["time"])
-        if stamp+pd.Timedelta(minutes=1) <= now:
+        observed = pd.Timestamp(row.pop("retrieved_at") or now)
+        if stamp+pd.Timedelta(minutes=1) <= now and observed <= now:
             # A full historical bar replaces a partial local capture; volumes are never added together.
-            by_time[stamp] = {**row, "last_sequence": 0, "asof_time": (stamp+pd.Timedelta(minutes=1)).isoformat()}
-    frame = pd.DataFrame(by_time.values(), columns=["time", "open", "high", "low", "close", "volume", "asof_time", "last_sequence"])
+            by_time[stamp] = {**row, "last_sequence": 0, "asof_time": observed.isoformat(), "complete": True}
+    frame = pd.DataFrame(by_time.values(), columns=["time", "open", "high", "low", "close", "volume", "asof_time", "last_sequence", "complete"])
     frame["time"] = pd.to_datetime(frame["time"], utc=True)
     frame = frame.loc[frame["time"] <= now.floor("min")].sort_values("time").reset_index(drop=True)
     frame.attrs.update(contract_id=contract_id, provenance="contract-specific saved broker bars / sequenced trades")
+    frame.attrs["coverage_limitation"] = "Connection windows cannot establish exchange-level exactly-once delivery; backfilled bars are authoritative."
     return frame
 
 

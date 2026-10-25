@@ -42,6 +42,7 @@ class TickBuffer:
         self.queue = Queue(maxsize=capacity)
         self.stopping = Event()
         self.disconnected = disconnected
+        self.gap_at = None
         self.worker = Thread(target=self.run,name="tick-writer",daemon=True)
 
     def start(self):
@@ -52,6 +53,7 @@ class TickBuffer:
             self.queue.put_nowait((kind,symbol,contract,dict(payload),utc_now()))
             return True
         except Full:
+            self.gap_at = self.gap_at or utc_now()
             logging.error("Tick buffer full: feed gap detected; reconnecting")
             self.disconnected.set()
             return False
@@ -71,6 +73,8 @@ class TickBuffer:
             try:
                 write_batch(batch)
             except Exception as error:
+                failed_at = min(event[4] for event in batch)
+                self.gap_at = min(self.gap_at, failed_at) if self.gap_at else failed_at
                 logging.error("Tick batch persistence failed (%s); feed gap requires review",type(error).__name__)
                 self.disconnected.set()
                 return

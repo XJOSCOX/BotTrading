@@ -30,3 +30,15 @@ def instrument(symbol):
 def round_tick(price, tick, up=False):
     units = Decimal(str(price)) / Decimal(str(tick))
     return float(units.to_integral_value(rounding=ROUND_CEILING if up else ROUND_FLOOR) * Decimal(str(tick)))
+
+
+def validate_contract_instrument(symbol, contract_id):
+    """Reject known ProjectX product mismatches; other provider IDs need caller validation."""
+    if not isinstance(contract_id, str):
+        raise ValueError("Actual contract ID is required")
+    if contract_id.startswith("CON.F.US."):
+        products = {"NQ": {"ENQ", "NQ"}, "ES": {"EP", "ES"}, "YM": {"YM"},
+                    "MNQ": {"MNQ"}, "MES": {"MES"}, "MYM": {"MYM"}}
+        pieces = contract_id.split(".")
+        if len(pieces) != 5 or pieces[-2] not in products[instrument(symbol).symbol]:
+            raise ValueError("Selected instrument does not match the historical ProjectX contract")

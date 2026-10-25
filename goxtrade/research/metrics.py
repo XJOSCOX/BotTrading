@@ -42,6 +42,17 @@ def statistics(trades, starting_balance=0., duration_seconds=None, equity=None):
 def breakdown(trades, key):
     groups = {}
     for row in trades:
-        value = pd.Timestamp(row["exit_time"]).strftime("%Y-%m") if key == "month" else str(row.get(key, "Unknown"))
+        value = pd.Timestamp(row["exit_time"]).tz_convert("America/Chicago").strftime("%Y-%m") if key == "month" else str(row.get(key, "Unknown"))
         groups.setdefault(value, []).append(row)
     return {value: statistics(rows) for value, rows in groups.items()}
+
+
+def monthly_returns(trades, starting_balance):
+    balance = float(starting_balance)
+    output = {}
+    for month, values in sorted(breakdown(trades, "month").items()):
+        ending = balance+values["net"]
+        output[month] = dict(**values, starting_balance=balance, ending_balance=ending,
+                             closed_trade_return_percent=100*values["net"]/balance if balance > 0 else None)
+        balance = ending
+    return output

@@ -20,6 +20,13 @@ def render_result(result, key):
         column.metric(name.replace("_", " ").title(), "--" if value is None else f"{value:,.2f}" if isinstance(value, float) else value)
     st.caption(f"Historical simulation | {result['contract_id']} | {result['start']} to {result['end']} | {result['provenance']}")
     st.caption(f"Dataset {result['dataset_hash'][:16]} | Costs {result['simulation']} | Open at end: {result['open_at_end']} | Ambiguous: {result['ambiguous_trades']}")
+    if result["simulation"].get("commission_per_side") == 0:
+        st.warning("Zero-cost sensitivity scenario" if result["simulation"].get("zero_cost_sensitivity") else "Legacy result: zero fees were not explicitly acknowledged; fee-inclusive performance is unverified.")
+    if result.get("accounting"):
+        st.caption("Accounting: "+str(result["accounting"]))
+    if result.get("monthly_returns"):
+        with st.expander("Monthly closed-trade returns (CT)"):
+            st.dataframe(pd.DataFrame([dict(month=month, **value) for month, value in result["monthly_returns"].items()]), hide_index=True, width="stretch")
     with st.expander("Statistics & session breakdown"):
         st.dataframe(pd.DataFrame([summary]), hide_index=True, width="stretch")
         for group, values in result["breakdown"].items():
@@ -52,8 +59,12 @@ def render_research(config):
     quantity = c.number_input("Contracts", 1, 4, 1, key="research_qty")
     a, b, c = st.columns(3)
     starting = a.number_input("Starting balance ($)", min_value=0., value=50000., key="research_balance")
-    commission = b.number_input("Commission / contract / side ($)", min_value=0., value=0., key="research_fee")
-    slippage = c.number_input("Slippage / fill (ticks)", min_value=0., value=1., key="research_slip")
+    commission = b.number_input("Commission / contract / side ($)", min_value=0., value=None, step=.01, key="research_fee")
+    slippage = c.number_input("Slippage / fill (ticks)", min_value=0, value=1, key="research_slip")
+    zero_cost = st.checkbox("Zero-cost sensitivity scenario (explicitly ignore commission)", key="research_zero_cost")
+    a, b = st.columns(2)
+    max_risk = a.number_input("Research maximum initial risk ($, optional)", min_value=.01, value=None, key="research_max_risk")
+    min_rr = b.number_input("Minimum effective RR after slippage", min_value=0., value=0., key="research_min_rr")
     a, b = st.columns(2)
     folds = a.number_input("Chronological walk-forward folds (0 = single run)", 0, 10, 0, key="research_folds")
     fraction = b.slider("Initial training fraction", .1, .9, .7, .05, key="research_training")
@@ -74,6 +85,7 @@ def render_research(config):
             else:
                 minutes = load_strategy_minutes(symbol+"=F", contract, pd.Timestamp.now(tz="UTC"),
                                                 hours=max(72, (today-begin).days*24+48), refresh=False)
+                minutes = minutes.loc[minutes["complete"].eq(True)]
             lower = pd.Timestamp(begin, tz="America/Chicago").tz_convert("UTC")
             upper = pd.Timestamp(end+timedelta(days=1), tz="America/Chicago").tz_convert("UTC")
             minutes = minutes.loc[(minutes["time"] >= lower-pd.Timedelta(hours=72)) & (minutes["time"] < upper)]
@@ -81,8 +93,9 @@ def render_research(config):
             if ticks is not None:
                 stamps = pd.to_datetime(ticks["time"], utc=True)
                 ticks = ticks.loc[(stamps >= lower) & (stamps < upper)]
-            sim = SimulationConfig(quantity=quantity, starting_balance=starting, commission_per_side=commission,
-                                   slippage_ticks=slippage, cooldown_minutes=config.cooldown_minutes)
+            sim = SimulationConfig(quantity=quantity, starting_balance=starting, commission_per_side=0. if zero_cost else commission,
+                                   zero_cost_sensitivity=zero_cost, slippage_ticks=slippage, cooldown_minutes=config.cooldown_minutes,
+                                   max_initial_risk_usd=max_risk, minimum_effective_rr=min_rr).validate()
             args = dict(symbol=symbol, contract_id=contract, strategy=strategy,
                         strategy_config=config.to_dict() if strategy == "VWAP EMA Cross" else None, simulation=sim, trade_start=lower)
             if folds and (ticks is not None or (strategy == "VWAP EMA Cross" and config.entry_mode != "CONFIRMED")):
