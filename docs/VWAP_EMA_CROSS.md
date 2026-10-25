@@ -299,3 +299,10 @@ script as part of this validation.
 - [CME Micro E-mini contract specifications](https://www.cmegroup.com/articles/faqs/frequently-asked-questions-micro-e-mini-equity-index-futures.html)
 - [CME E-mini FAQ](https://www.cmegroup.com/trading/equity-index/eminifaq.html)
 - [CME equity futures overview](https://www.cmegroup.com/content/dam/cmegroup/education/modules/files/EQ240_EQ_for_AIT.pdf)
+## Optional Central Paper Exit Management
+
+New paper positions can explicitly freeze a shared Trade Management policy.
+Existing indicator positions keep their original configuration and all Practice/
+Leader permissions remain unchanged. Portfolio exit-policy comparisons use the
+same observable entry signals and explicit costs, not invented live results.
+See [Trade Management Engine](TRADE_MANAGEMENT_ENGINE.md).

@@ -98,11 +98,11 @@ trading latency or real-market profitability is claimed.
 
 ## Validation
 
-`python -m unittest discover` passed 404 tests with no failures, errors or skips.
+`python -m unittest discover` passed 433 tests with no failures, errors or skips.
 These include local API access controls, sanitized errors, arm preconditions,
 no-startup-side-effects and interface-only restart tests. Broker responses are mocked.
 TypeScript checking and the production build passed. The initial JavaScript bundle
-is approximately 84 KB gzip; the chart library is loaded separately.
+is approximately 86 KB gzip; the chart library is loaded separately.
 
 `python -m tests.test_native_browser` checks desktop/mobile navigation, no overflow,
 WebSocket updates, chart rendering, persistent zoom, resizable indicators and the
@@ -122,3 +122,11 @@ Control Center edits are drafts until their tab's Save button succeeds. The form
 shows unsaved changes and confirmation separately. Configuration reads include saved
 execution settings directly instead of using the cached live runtime as form defaults.
 Saving configuration does not change Run/Pause, reset loss limits or modify open trades.
+
+The Trade Management sidebar page shares research exit policies in both account
+views, without modifying account execution settings. Its four tabs show separately
+labeled broker snapshots, paper protection, giveback diagnostics and ten-policy
+comparisons. `python -m tests.test_trade_management_browser` checks both views at
+six viewport sizes, populated fixture tables, persistence and failed-save drafts
+against a temporary database with broker transport blocked. Existing Strategy
+Manager/Control Center browser checks also pass at six sizes.

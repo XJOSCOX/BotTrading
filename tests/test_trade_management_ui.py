@@ -54,4 +54,3 @@ class TradeManagementUiTests(unittest.TestCase):
             app.run(timeout=20)
             self.assertFalse(app.exception)
             self.assertEqual([tab.label for tab in app.tabs], ["Positions", "Exit policy", "Giveback review", "Policy comparison"])
-

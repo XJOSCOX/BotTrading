@@ -280,3 +280,10 @@ Confirmed integration fixes include stale/missing worker rows hiding registered
 strategies, the native research route incorrectly passing VWAP-only configuration
 to legacy strategies, and chart-pane time-index drift when RSI warmup bars were
 dropped. These fixes do not redefine the existing strategies.
+## Optional Central Paper Exit Management
+
+New opted-in paper entries may freeze a shared exit policy after the existing box
+entry and portfolio risk checks. This does not alter box geometry, enable Leader,
+resize active positions or replace existing frozen exits. Review MFE/MAE and
+giveback as diagnostics, not guarantees. See
+[Trade Management Engine](TRADE_MANAGEMENT_ENGINE.md).

@@ -131,3 +131,12 @@ off by default; broker cutover is prohibited. Practice and Leader expose the sam
 catalog and shared parameter/interval controls without copying account execution
 permissions. See [Strategy Execution Manager](docs/STRATEGY_EXECUTION_MANAGER.md)
 for architecture, validation, file manifest and broker-integration blockers.
+
+## Trade Management
+
+Shared research/paper exit policies add fixed targets, break-even estimates,
+monotonic trailing/profit locks, whole-contract partials and MFE/MAE/giveback
+diagnostics. Defaults remain off/baseline; existing positions keep their frozen
+management and broker amendments are blocked. See
+[Trade Management Engine](docs/TRADE_MANAGEMENT_ENGINE.md) and
+[Full System Audit](docs/FULL_SYSTEM_AUDIT.md).

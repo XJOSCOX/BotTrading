@@ -210,3 +210,13 @@ broker fills or assume its risk policy changed funded-account controls.
 Existing broker workers and alert-ID selection remain unchanged. The manager's
 broker authorization and broker reservations are prohibited pending a separately
 reviewed cutover. See [Strategy Execution Manager](STRATEGY_EXECUTION_MANAGER.md).
+
+## Trade Management / New Research Positions Only
+
+The shared Trade Management page is available in both account views. Its default
+is disabled/baseline. An explicit new exit-policy snapshot can govern new paper
+positions without changing current positions, broker Run/Pause or account limits.
+Partial paper fills use whole contracts and preserve one completed-trade episode.
+Software stops and marked profits are not broker-confirmed protection/results.
+No broker amendment or partial-close transport is enabled. Read
+[Trade Management Engine](TRADE_MANAGEMENT_ENGINE.md) before running experiments.
