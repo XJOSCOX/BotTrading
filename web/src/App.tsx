@@ -5,6 +5,7 @@ import {
   ChartCandlestick,
   SlidersHorizontal,
   ListFilter,
+  ShieldCheck,
   Zap,
   WalletCards,
   KeyRound,
@@ -32,6 +33,7 @@ import {
 } from "./pages";
 import { Badge, Notice } from "./components";
 import { StrategyManager } from "./pages/StrategyManager";
+import { TradeManagement } from "./pages/TradeManagement";
 
 const navigation = [
   {
@@ -81,6 +83,14 @@ const navigation = [
     group: "Trading",
     detail: "Shadow decisions and shared portfolio research",
     component: StrategyManager,
+  },
+  {
+    name: "Trade Management",
+    id: "trade-management",
+    icon: ShieldCheck,
+    group: "Trading",
+    detail: "Frozen exit policies, software protection and profit giveback",
+    component: TradeManagement,
   },
   {
     name: "Research",

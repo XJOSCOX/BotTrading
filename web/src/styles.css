@@ -618,6 +618,14 @@ main {
 .table-scroll tbody tr:hover {
   background: #1e201f;
 }
+
+.trade-management .table-scroll table {
+  min-width: max-content;
+}
+.trade-management .table-scroll td {
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
 .empty {
   display: flex;
   flex-direction: column;

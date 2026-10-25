@@ -346,6 +346,32 @@ def create_app():
         from goxtrade.execution.manager_service import overview
         return state.clean(overview(profile))
 
+    @app.get("/api/trade-management", dependencies=[Depends(session)])
+    def trade_management_view(profile: Profile = "practice"):
+        from goxtrade.execution.profit_service import view
+        return state.clean(view(profile))
+
+    @app.post("/api/trade-management/policy", dependencies=[Depends(mutation)])
+    def trade_management_policy(body: dict):
+        from goxtrade.execution.profit_service import save_policy
+        return dict(message="New research/paper exit policy saved. Existing positions and broker controls unchanged.", policy=save_policy(body).to_dict())
+
+    @app.post("/api/trade-management/compare", dependencies=[Depends(mutation)])
+    def trade_management_compare(body: PortfolioResearch):
+        import pandas as pd
+        from io import StringIO
+        from goxtrade.execution.manager_service import policy, shared_strategy_configs
+        from goxtrade.execution.profit_service import save_comparison
+        from goxtrade.research.exit_policy_comparison import compare_exits, chronological_exit_folds
+        datasets = [(item.symbol, item.contract_id, pd.read_csv(StringIO(item.csv))) for item in body.datasets]
+        if sum(len(frame) for _, _, frame in datasets) > 10000:
+            raise ValueError("Use at most 10000 actual source minutes for interactive ten-policy comparison")
+        settings, configs = policy(), shared_strategy_configs()
+        result = compare_exits(datasets, settings, configs)
+        if body.walk_forward:
+            result["walk_forward"] = chronological_exit_folds(datasets, settings, configs)
+        return state.clean(dict(message="Prespecified exit-policy research saved separately from broker results.", id=save_comparison(result), result=result))
+
     @app.post("/api/manager/policy", dependencies=[Depends(mutation)])
     def manager_policy(body: dict):
         from goxtrade.execution.manager_service import save_policy
@@ -377,11 +403,13 @@ def create_app():
         if sum(len(frame) for _, _, frame in datasets) > 20000:
             raise ValueError("Use at most 20000 actual minute bars per interactive portfolio run")
         settings, configs = policy(), shared_strategy_configs()
-        result = run_portfolio_backtest(datasets, settings, configs)
+        from goxtrade.execution.profit_service import read_policy as profit_policy
+        exits = profit_policy()
+        result = run_portfolio_backtest(datasets, settings, configs, profit_policy=exits)
         if body.compare:
-            result["comparisons"] = {key: value["summary"] for key, value in compare_portfolios(datasets, settings, configs).items()}
+            result["comparisons"] = {key: value["summary"] for key, value in compare_portfolios(datasets, settings, configs, profit_policy=exits).items()}
         if body.walk_forward:
-            result["walk_forward"] = [{key: value for key, value in row.items() if key != "result"} | dict(summary=row["result"]["summary"]) for row in walk_forward(datasets, settings, configs)]
+            result["walk_forward"] = [{key: value for key, value in row.items() if key != "result"} | dict(summary=row["result"]["summary"]) for row in walk_forward(datasets, settings, configs, profit_policy=exits)]
         identifier = save_simulation(result)
         return state.clean(dict(message="Chronological portfolio simulation saved separately from broker results.", id=identifier, result=result))
 
