@@ -1,8 +1,22 @@
 # GoXTrade
 
+## Offline Replay and Diagnostics
+
+Phase 6 is delivered on `feature/offline-replay-diagnostics`, without automatically
+merging into main. Open **Market Replay** for causal historical playback, isolated
+virtual trading, frozen risk/exit settings and inspectable decisions. All seven
+existing strategies and ten existing exit-policy comparisons are reused.
+Minute OHLCV and reconciled actual trade recordings remain distinct simulations.
+
+Open **Diagnostics** for passive feed/configuration evidence and explicit read-only
+ProjectX authentication/history tests. No research or diagnostic action starts an
+account or submits orders. Saved data can replay without ProjectX. See
+[OFFLINE_REPLAY_AND_DIAGNOSTICS.md](docs/OFFLINE_REPLAY_AND_DIAGNOSTICS.md) for
+controls, persistence, causality, safety boundaries and measured limitations.
+
 ## Strategy Validation Lab
 
-The final consolidated delivery is on `main`. Open **Strategy Validation Lab** for
+The Phase 5 consolidated delivery is on `main`. Open **Strategy Validation Lab** for
 read-only contract history, quality/coverage reports, immutable research datasets,
 costed strategy/exit/portfolio comparisons, chronological unseen windows and
 exportable simulated results. Research is isolated from the live-feed database.

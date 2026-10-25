@@ -1,5 +1,30 @@
 # Bot operations
 
+## Offline Replay and Diagnostics
+
+Market Replay uses genuine saved Lab datasets and the existing pure portfolio,
+strategy and trade-management engines. Its virtual account and sessions live in
+`data/offline_replay.db`, separate from broker controls and historical Lab results.
+Play/Resume are explicit; interface restart does not resume playback. Stop freezes
+virtual exposure without fabricating liquidation. Restart creates a new session.
+
+Diagnostics performs passive configuration/feed inspection without login. Only
+explicit authentication/history buttons may contact the allowlisted read-only
+provider endpoints. Missing events during exchange closure do not prove an outage.
+Subscription requests are not provider acknowledgements. Credentials/tokens and
+raw provider error bodies are excluded from reports.
+
+The updated collector suppresses repeated confirmed invalid-credential/permission
+logins until credentials change or the operator deliberately restarts it. Temporary
+network failures retain bounded backoff/reconnect behavior. Account locks, uncertain
+orders, protective orders and worker ownership are not reset. Existing running
+workers need an operator-controlled restart to load new telemetry/recovery code;
+this feature does not restart them automatically.
+
+See [OFFLINE_REPLAY_AND_DIAGNOSTICS.md](OFFLINE_REPLAY_AND_DIAGNOSTICS.md) for exact
+source bounds, data/cost assumptions, persistence and verification. Phase 6 is a
+separate feature branch; no new broker authorization was performed.
+
 ## Validation Lab and Real-Time Updates
 
 Use Strategy Validation Lab for historical downloads/imports, reviewed coverage,
