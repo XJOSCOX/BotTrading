@@ -269,15 +269,9 @@ def _tick_backtest(minutes, ticks, symbol, contract_id, spec, config, sim, trade
     next_entry = start
     for row in ticks.to_dict("records"):
         now, price, sequence = row["time"], float(row["price"]), int(row["sequence"])
-        minute = now.floor("min")
-        part = partials.setdefault(minute, dict(time=minute, open=price, high=price, low=price, close=price, volume=0.))
-        part.update(high=max(part["high"], price), low=min(part["low"], price), close=price,
-                    volume=part["volume"]+row["volume"], last_sequence=sequence, asof_time=now.isoformat())
+        from goxtrade.research.datasets import intrabar_snapshot
+        snapshot = intrabar_snapshot(minutes,partials,row,config.signal_minutes)
         known = minutes.loc[minutes["time"]+pd.Timedelta(minutes=1) <= now]
-        bucket = now.floor(f"{config.signal_minutes}min")
-        snapshot = pd.concat([known.loc[known["time"] < bucket],
-                              pd.DataFrame([value for stamp, value in partials.items() if stamp >= bucket])], ignore_index=True)
-        snapshot.attrs.update(minutes.attrs)
         schedule = execution_schedule(now.to_pydatetime(), calendar=False)
         if active:
             long = active["signal"] == "LONG"

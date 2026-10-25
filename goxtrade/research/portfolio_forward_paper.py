@@ -78,10 +78,10 @@ def record_decisions(state, candidates, decisions):
 
 
 def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
-                      session_allowed=False, session_reason="Session unavailable", flatten=False, management_histories=None):
+                      session_allowed=False, session_reason="Session unavailable", flatten=False, management_histories=None, _owned_state=False):
     """Observations are actual sequenced trades. Pending entries wait for a later tick."""
     policy.validate()
-    state = copy.deepcopy(old)
+    state = old if _owned_state else copy.deepcopy(old)
     if state["profile"] not in ("paper", "research"):
         raise ValueError("No broker portfolio simulation")
     now = stamp(now)

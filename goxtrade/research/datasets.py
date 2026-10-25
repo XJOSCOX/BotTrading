@@ -40,6 +40,21 @@ def dataset_hash(frame):
     return hashlib.sha256(frame[columns].to_csv(index=False, float_format="%.12g").encode()).hexdigest()
 
 
+def intrabar_snapshot(minutes,partials,row,signal_minutes):
+    """Shared actual-trade aggregation for single backtests and portfolio replay."""
+    now=pd.Timestamp(row["time"])
+    minute=now.floor("min")
+    price=float(row["price"])
+    part=partials.setdefault(minute,dict(time=minute,open=price,high=price,low=price,close=price,volume=0.))
+    part.update(high=max(part["high"],price),low=min(part["low"],price),close=price,
+                volume=part["volume"]+float(row["volume"]),last_sequence=int(row["sequence"]),asof_time=now.isoformat())
+    known=minutes.loc[minutes["time"]+pd.Timedelta(minutes=1)<=now]
+    bucket=now.floor(f"{signal_minutes}min")
+    snapshot=pd.concat([known.loc[known["time"]<bucket],pd.DataFrame([value for stamp,value in partials.items() if stamp>=bucket])],ignore_index=True)
+    snapshot.attrs.update(minutes.attrs)
+    return snapshot
+
+
 def validate_ticks(ticks, contract_id):
     required = {"time", "sequence", "price", "volume"}
     if ticks is None or not required <= set(ticks.columns):

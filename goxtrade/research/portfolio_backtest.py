@@ -30,7 +30,7 @@ def session_facts(now):
                 reason=schedule["reason"] if remaining > pd.Timedelta(minutes=15) else "Exchange early-close buffer")
 
 
-def candidates_at(histories, prices, contracts, now, policy, *, account, profile, configurations=None, quote_times=None):
+def candidates_at(histories, prices, contracts, now, policy, *, account, profile, configurations=None, quote_times=None, recorded_contexts=None):
     """All seven adapters retain their own confirmation and frozen exit rules."""
     from goxtrade.strategies.entry_confirmation import evaluate as confirm_legacy
     from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
@@ -55,9 +55,13 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
                     raise ValueError("Unverified contract provenance or incomplete required history")
                 if spec.id == "vwap_ema_cross":
                     config = replace(VwapEmaConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(reference,))
-                    if config.entry_mode != "CONFIRMED":
+                    context=(recorded_contexts or {}).get(symbol)
+                    if config.entry_mode != "CONFIRMED" and context is None:
                         raise UnsupportedDataset("Portfolio minute replay supports CONFIRMED indicator mode only; intrabar signals require recorded trades")
-                    raw, _, _ = evaluate_vwap_ema_cross(known, price, now, config, historical=True, symbol=reference)
+                    snapshot=context["snapshot"] if context is not None and config.entry_mode!="CONFIRMED" else known
+                    raw, _, observation = evaluate_vwap_ema_cross(snapshot, price, now, config, historical=True, symbol=reference,
+                        **(dict(previous=context.get("observation"),sequence=context["sequence"]) if context is not None else {}))
+                    if context is not None:context["observation"]=observation
                     config_values = config.to_dict()
                 elif spec.id == "previous_day_box":
                     config = replace(PreviousDayBoxConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(reference,))
@@ -70,11 +74,11 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
                     waits.append(dict(strategy_id=spec.id, symbol=symbol, time=now.isoformat(), reason=raw.get("reason", "No confirmed setup")))
                     continue
                 created = now.isoformat()
-                confirmed_at = raw.get("confirmed_at") or (pd.Timestamp(raw["setup_time"])+pd.Timedelta(minutes=spec.signal_minutes)).isoformat()
+                confirmed_at = raw.get("confirmed_at") or (now.isoformat() if raw.get("entry_mode") in ("REALTIME","ANTICIPATORY") else (pd.Timestamp(raw["setup_time"])+pd.Timedelta(minutes=spec.signal_minutes)).isoformat())
                 expiry = pd.Timestamp(confirmed_at)+pd.Timedelta(seconds=raw.get("entry_window_seconds", 600 if spec.runtime_adapter is None else spec.expiration_seconds))
                 valid = True
                 if spec.runtime_adapter is None:
-                    confirmed = confirm_legacy({**raw, "status": "Active", "symbol": reference}, known, price, now)
+                    confirmed = confirm_legacy({**raw, "status": "Active", "symbol": reference}, known, price, now,profile=profile)
                     valid = confirmed["state"] == "Confirmed"
                     if not valid:
                         raw["reason"] = confirmed["reason"]
@@ -91,11 +95,8 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
     return candidates, waits
 
 
-def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None, profit_policy=None, progress=None):
-    """Each dataset is explicit (instrument, actual contract, finalized minute frame)."""
-    policy.validate()
-    if policy.commission_per_side is None:
-        raise ValueError("Portfolio backtest requires explicit costs")
+def prepare_portfolio(datasets):
+    """Validate a bounded immutable tape once for incremental replay, not per candle."""
     frames, contracts, hashes = {}, {}, {}
     for symbol, contract, frame in datasets:
         if symbol in frames:
@@ -108,11 +109,36 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
         frames[symbol], contracts[symbol], hashes[symbol] = source, contract, dataset_hash(source)
     if not frames:
         raise ValueError("Actual historical datasets required; no synthetic fallback")
-    state = empty_portfolio("portfolio-backtest", "research")
     observations = {symbol: {row["time"]: row for row in frame.to_dict("records")} for symbol, frame in frames.items()}
     times = sorted(set().union(*(set(rows) for rows in observations.values())))
-    previous, sequence = {}, 0
-    for index, now in enumerate(times):
+    return dict(frames=frames,contracts=contracts,hashes=hashes,observations=observations,times=times)
+
+
+def copy_checkpoint(state):
+    # Completed journal rows are append-only. Copy list boundaries, but deep-copy
+    # all mutable open exposure; replay must not clone its entire past each candle.
+    return {key:(copy.deepcopy(value) if key in ("positions","pending","marks") else list(value) if isinstance(value,list) else copy.deepcopy(value)) for key,value in state.items()}
+
+
+def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None, profit_policy=None, progress=None,
+                           *, checkpoint=None, max_steps=None, prepared=None):
+    """Each dataset is explicit (instrument, actual contract, finalized minute frame)."""
+    policy.validate()
+    if policy.commission_per_side is None:
+        raise ValueError("Portfolio backtest requires explicit costs")
+    tape=prepared if prepared is not None else prepare_portfolio(datasets)
+    frames,contracts,hashes,observations,times=(tape[k] for k in ("frames","contracts","hashes","observations","times"))
+    state = copy_checkpoint(checkpoint["state"]) if checkpoint else empty_portfolio("portfolio-backtest", "research")
+    cursor = checkpoint["next_index"] if checkpoint else 0
+    if type(cursor) is not int or not 0 <= cursor <= len(times):
+        raise ValueError("Invalid simulation checkpoint cursor")
+    if max_steps is not None and (type(max_steps) is not int or not 1 <= max_steps <= 100):
+        raise ValueError("Simulation batches are bounded to 100 candles")
+    previous = {s: pd.Timestamp(t) for s,t in checkpoint.get("previous",{}).items()} if checkpoint else {}
+    sequence = checkpoint.get("sequence",0) if checkpoint else 0
+    stop_index = min(len(times),cursor+max_steps) if max_steps else len(times)
+    for index in range(cursor,stop_index):
+        now = times[index]
         if progress and (index % 50 == 0 or index == len(times)-1):
             progress(index/max(1,len(times)-1))
         schedule = session_facts(now)
@@ -128,7 +154,7 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
             previous[symbol] = now
         known = {symbol: frame.loc[frame["time"] < now].copy() for symbol, frame in frames.items()}
         state = advance_portfolio(state, [], trades, policy, now.isoformat(), contracts=contracts,
-                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"], management_histories=known)
+                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"], management_histories=known,_owned_state=True)
         prices = {symbol: float(bar["open"]) for symbol, bar in present.items()}
         candidates, waits = (candidate_source(known, prices, contracts, now, policy, account=state["account"], profile="research")
                              if candidate_source else candidates_at(known, prices, contracts, now, policy,
@@ -137,7 +163,7 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
         from goxtrade.research.managed_positions import with_exit_policy
         candidates = with_exit_policy(candidates, profit_policy)
         state = advance_portfolio(state, candidates, [], policy, now.isoformat(), contracts=contracts,
-                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"])
+                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"],_owned_state=True)
         closed_at = now+pd.Timedelta(minutes=1)
         for symbol, bar in present.items():
             state["marks"][symbol] = dict(price=float(bar["close"]), time=closed_at.isoformat(), contract_id=contracts[symbol])
@@ -170,7 +196,8 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
         remaining_risk = sum(Exposure(**item["exposure"]).risk+item["exposure"]["quantity"]*(2*policy.commission_per_side+2*policy.slippage_ticks*instrument(item["exposure"]["symbol"]).tick_value)+policy.protective_buffer for item in (*state["positions"],*state["pending"]))
         state.setdefault("risk_history",[]).append(dict(time=closed_at.isoformat(),planned_risk=remaining_risk,utilization_percent=100*remaining_risk/policy.max_open_risk))
     return dict(kind="portfolio_backtest", policy=policy.to_dict(), profit_policy=profit_policy.to_dict() if profit_policy else None, configurations=configurations or {}, datasets=hashes,
-                summary=portfolio_summary(state), state=state, broker_checks="NOT_PERFORMED", assumptions="Next observed open; stop first for ambiguous OHLC; gaps marked; no synthetic rollover")
+                summary=portfolio_summary(state), state=state, broker_checks="NOT_PERFORMED", assumptions="Next observed open; stop first for ambiguous OHLC; gaps marked; no synthetic rollover",
+                checkpoint=dict(next_index=stop_index,previous={s:t.isoformat() for s,t in previous.items()},sequence=sequence),total_steps=len(times))
 
 
 def compare_portfolios(datasets, policy, configurations=None, *, profit_policy=None):

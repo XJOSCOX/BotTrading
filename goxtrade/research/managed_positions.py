@@ -53,7 +53,8 @@ def book_portfolio(state, position):
         gross=managed["realized_gross"], costs=diagnostics["fees"], net=net, reason=managed["last_exit_reason"],
         slippage_cost=diagnostics["slippage_dollars"]+managed["original_quantity"]*position["policy"]["slippage_ticks"]*instrument(candidate["symbol"]).tick_value,
         session=candidate["session"], candidate_id=candidate["candidate_id"], setup_id=candidate["setup_id"],
-        holding_seconds=diagnostics["holding_seconds"], partial_fills=fills, management_analytics=diagnostics, exit_policy=managed["policy"]))
+        holding_seconds=diagnostics["holding_seconds"], partial_fills=fills, management_analytics=diagnostics, exit_policy=managed["policy"],
+        management_decisions=managed["decisions"],target_touched=managed.get("target_touched",False),final_baseline=managed["baseline"]))
     state["last_closed_at"] = managed["last_time"]
     state["consecutive_losses"] = state["consecutive_losses"]+1 if net < 0 else 0
     state["positions"].remove(position)

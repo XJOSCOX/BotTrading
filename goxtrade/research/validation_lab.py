@@ -26,7 +26,7 @@ def revision():
     return dict(commit=commit,dirty=dirty)
 
 
-def validate_request(values):
+def validate_request(values, *, allow_recorded_intrabar=False):
     allowed = {"datasets","strategies","start","end","initial_balance","execution","exit_policy","configurations","session","compare_exits","compare_portfolios","walk_forward","sensitivity"}
     if not isinstance(values,dict) or set(values)-allowed:
         raise ValueError("Unknown validation request fields")
@@ -54,7 +54,7 @@ def validate_request(values):
         if strategy == "vwap_ema_cross":
             from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
             settings = VwapEmaConfig.from_dict(config)
-            if settings.entry_mode != "CONFIRMED":
+            if settings.entry_mode != "CONFIRMED" and not allow_recorded_intrabar:
                 raise ValueError("Unsupported minute replay: realtime/anticipatory entries require recorded ordered trade ticks")
         elif strategy == "previous_day_box":
             from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig

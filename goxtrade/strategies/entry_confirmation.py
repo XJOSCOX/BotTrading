@@ -1,18 +1,25 @@
 """15m setups await completed 5m structure and a fresh 1m break. Entry only."""
 import math
+import os
 from contextlib import closing
 from datetime import datetime, timezone
 
 import pandas as pd
-from goxtrade.data.chart_history import chart_history
 from goxtrade.execution.contracts import contract_for_symbol
-from goxtrade.config.execution_identity import PROFILE
 from goxtrade.data.live_store import connect
 from goxtrade.data.price_ticks import valid_price
 from goxtrade.strategies.signal_candles import signal_candles
 
+PROFILE=os.getenv("GOX_EXECUTION_PROFILE","practice")
 
-def window_open(signal, now=None):
+
+def chart_history(*args,**kwargs):
+    # Live-only retrieval stays lazy: pure confirmation can run without transport.
+    from goxtrade.data.chart_history import chart_history as retrieve
+    return retrieve(*args,**kwargs)
+
+
+def window_open(signal, now=None, *, profile=None):
     now = pd.Timestamp(now or datetime.now(timezone.utc))
     if signal.get("entry_policy") in ("indicator-event-v1","previous-box-v1"):
         start = pd.to_datetime(signal.get("confirmed_at") if signal.get("entry_mode") == "CONFIRMED" else signal.get("detected_at"), utc=True, errors="coerce")
@@ -21,11 +28,11 @@ def window_open(signal, now=None):
                     and 0 <= (now-start).total_seconds() < seconds)
     start = pd.to_datetime(signal.get("setup_time"), utc=True, errors="coerce")+pd.Timedelta(minutes=15)
     # Practice must have time to evaluate the first post-setup 5m close.
-    seconds = 600 if PROFILE == "practice" else 300
+    seconds = 600 if (profile or PROFILE) in ("practice","research") else 300
     return bool(signal.get("signal_minutes") == 15 and pd.notna(start) and 0 <= (now-start).total_seconds() < seconds)
 
 
-def evaluate(signal, minutes, price, now):
+def evaluate(signal, minutes, price, now, *, profile=None):
     if signal.get("entry_policy") == "previous-box-v1":
         from goxtrade.strategies.previous_day_box import evaluate_previous_day_box, validate_entry
         from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
@@ -41,7 +48,7 @@ def evaluate(signal, minutes, price, now):
         return evaluate_indicator_entry(signal, minutes, price, now)
     def result(state, reason):
         return dict(state=state, reason=reason, price=price)
-    if not window_open(signal, now) or signal.get("status") != "Active":
+    if not window_open(signal, now,profile=profile) or signal.get("status") != "Active":
         return result("Cancelled", "15m setup expired or inactive")
     if signal.get("signal") not in ("LONG", "SHORT"):
         return result("Cancelled", "Invalid direction")
@@ -77,7 +84,7 @@ def evaluate(signal, minutes, price, now):
     if risk<=0:
         return result("Cancelled", "Invalid setup risk")
     if abs(price-entry) > .5*risk:
-        return result("Waiting" if PROFILE == "practice" else "Cancelled",
+        return result("Waiting" if (profile or PROFILE) in ("practice","research") else "Cancelled",
                       "Price moved more than 0.5 setup risk from the original entry")
     prev5, last5 = five.iloc[-2],five.iloc[-1]
     support = (last5["close"]>last5["open"] and last5["close"]>prev5["close"]) if long else (last5["close"]<last5["open"] and last5["close"]<prev5["close"])
