@@ -91,7 +91,7 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
     return candidates, waits
 
 
-def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None):
+def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None, profit_policy=None):
     """Each dataset is explicit (instrument, actual contract, finalized minute frame)."""
     policy.validate()
     if policy.commission_per_side is None:
@@ -124,14 +124,16 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
                     if position["exposure"]["symbol"] == symbol:
                         position["pending_exit"] = "Data gap / next observed open"
             previous[symbol] = now
-        state = advance_portfolio(state, [], trades, policy, now.isoformat(), contracts=contracts,
-                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"])
         known = {symbol: frame.loc[frame["time"] < now].copy() for symbol, frame in frames.items()}
+        state = advance_portfolio(state, [], trades, policy, now.isoformat(), contracts=contracts,
+                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"], management_histories=known)
         prices = {symbol: float(bar["open"]) for symbol, bar in present.items()}
         candidates, waits = (candidate_source(known, prices, contracts, now, policy, account=state["account"], profile="research")
                              if candidate_source else candidates_at(known, prices, contracts, now, policy,
                                 account=state["account"], profile="research", configurations=configurations))
         state["data_rejections"].extend(waits)
+        from goxtrade.research.managed_positions import with_exit_policy
+        candidates = with_exit_policy(candidates, profit_policy)
         state = advance_portfolio(state, candidates, [], policy, now.isoformat(), contracts=contracts,
                                   session_allowed=schedule["allow_entry"], session_reason=schedule["reason"])
         closed_at = now+pd.Timedelta(minutes=1)
@@ -139,6 +141,11 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
             state["marks"][symbol] = dict(price=float(bar["close"]), time=closed_at.isoformat(), contract_id=contracts[symbol])
             for position in list(state["positions"]):
                 if position["exposure"]["symbol"] != symbol:
+                    continue
+                if position.get("trade_management"):
+                    from goxtrade.research.managed_positions import completed_bar
+                    full_known = frames[symbol].loc[frames[symbol]["time"] <= now].copy()
+                    completed_bar(state, position, bar, full_known, closed_at)
                     continue
                 exposure, candidate = position["exposure"], position["candidate"]
                 long = candidate["direction"] == "LONG"
@@ -157,17 +164,17 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
             marked += (state["marks"][exposure["symbol"]]["price"]-exposure["entry"])*(1 if exposure["direction"] == "LONG" else -1)*instrument(exposure["symbol"]).point_value*exposure["quantity"]
             marked -= position["policy"]["commission_per_side"]*exposure["quantity"]
         state["equity"].append(marked)
-    return dict(kind="portfolio_backtest", policy=policy.to_dict(), configurations=configurations or {}, datasets=hashes,
+    return dict(kind="portfolio_backtest", policy=policy.to_dict(), profit_policy=profit_policy.to_dict() if profit_policy else None, configurations=configurations or {}, datasets=hashes,
                 summary=portfolio_summary(state), state=state, broker_checks="NOT_PERFORMED", assumptions="Next observed open; stop first for ambiguous OHLC; gaps marked; no synthetic rollover")
 
 
-def compare_portfolios(datasets, policy, configurations=None):
+def compare_portfolios(datasets, policy, configurations=None, *, profit_policy=None):
     scenarios = {name: replace(policy, mode=name) for name in ("conservative", "first_confirmed", "configured_priority")}
     scenarios.update({"individual:"+key: replace(policy, participating=(key,)) for key in policy.participating})
-    return {name: run_portfolio_backtest(datasets, settings, configurations) for name, settings in scenarios.items()}
+    return {name: run_portfolio_backtest(datasets, settings, configurations, profit_policy=profit_policy) for name, settings in scenarios.items()}
 
 
-def walk_forward(datasets, policy, configurations=None, folds=3):
+def walk_forward(datasets, policy, configurations=None, folds=3, *, profit_policy=None):
     if type(folds) is not int or not 2 <= folds <= 10:
         raise ValueError("Use 2-10 chronological out-of-sample folds")
     times = sorted(set().union(*(set(pd.to_datetime(frame["time"], utc=True)) for _, _, frame in datasets)))
@@ -181,6 +188,6 @@ def walk_forward(datasets, policy, configurations=None, folds=3):
         def source(known, prices, contracts, now, settings, **kwargs):
             return candidates_at(known, prices, contracts, now, settings, configurations=configurations, **kwargs) if now >= start else ([], [])
         sliced = [(symbol, contract, frame.loc[pd.to_datetime(frame["time"], utc=True) <= end].copy()) for symbol, contract, frame in datasets]
-        result = run_portfolio_backtest(sliced, policy, configurations, candidate_source=source)
+        result = run_portfolio_backtest(sliced, policy, configurations, candidate_source=source, profit_policy=profit_policy)
         results.append(dict(test_start=start.isoformat(), test_end=end.isoformat(), policy_fitted=False, result=result))
     return results

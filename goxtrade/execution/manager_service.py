@@ -172,12 +172,14 @@ def paper_once(now=None):
         except ValueError:
             rejections.append(dict(time=now.isoformat(), reason="Rejected late/future/unverified trade; no retrospective paper fill"))
     state = old
+    management_histories = {(symbol,contract):load_strategy_minutes(symbol+"=F", contract, now, hours=24*16)
+                            for symbol, contract in watched if contract}
     # Each tick's own calendar controls pending fills; current wall time cannot authorize stale ticks.
     for observation in observations:
         when = pd.Timestamp(observation["time"])
         schedule = session_facts(when)
         state = advance_portfolio(state, [], [observation], settings, when.isoformat(), contracts=contracts,
-                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"])
+                                  session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"], management_histories=management_histories)
     histories, prices = {}, {}
     for symbol, contract in contracts.items():
         if not contract:
@@ -191,6 +193,12 @@ def paper_once(now=None):
                                          quote_times={symbol: state["marks"][symbol]["time"] for symbol in prices}) if settings.paper_enabled else ([], [])
     except ValueError:
         candidates, waits = [], [dict(time=now.isoformat(), reason="Strategy configuration unavailable; new portfolio paper entries blocked, owned exits retained")]
+    from goxtrade.execution.profit_service import read_policy as profit_policy
+    from goxtrade.research.managed_positions import with_exit_policy
+    try:
+        candidates = with_exit_policy(candidates, profit_policy())
+    except ValueError:
+        candidates = []  # Invalid new policy must not prevent the already-observed owned exits from committing.
     schedule = session_facts(now)
     state = advance_portfolio(state, candidates, [], settings, now.isoformat(), contracts=contracts,
                               session_allowed=schedule["allow_entry"], session_reason=schedule["reason"], flatten=schedule["flatten"])

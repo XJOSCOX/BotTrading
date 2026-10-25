@@ -134,4 +134,5 @@ def adapt_alert(alert, *, account_id, profile, symbol, contract_id, price, quote
                           execution_eligible, frozen_json(config if config is not None else alert.get("config_snapshot", {})),
                           frozen_json(evidence), frozen_json({key: alert[key] for key in (
                               "management_minutes", "structure_lookback", "breaks_required", "trail_start_r", "trail_ticks",
-                              "breakeven_r", "initial_stop", "setup_invalidation", "atr", "stop_buffer_ticks") if key in alert}))
+                              "breakeven_r", "initial_stop", "setup_invalidation", "atr", "stop_buffer_ticks", "profit_policy",
+                              "trail_buffer", "break_confirmations", "stop_atr") if key in alert}))

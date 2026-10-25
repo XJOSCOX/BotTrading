@@ -70,6 +70,15 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
         if active:
             frozen = config_class.from_dict(active["config_snapshot"])
             sim = paper_sim(frozen, active["quantity"])
+            if active.get("trade_management") or active.get("profit_policy_snapshot", {}).get("enabled"):
+                from goxtrade.research.managed_positions import single_paper_tick
+                trade = single_paper_tick(active, price, stamp, symbol, spec, sim, minutes, active.get("profit_policy_snapshot"))
+                if trade:
+                    trade["exit_sequence"] = tick["id"]
+                    trades.append(trade)
+                    state["next_entry"] = (stamp+pd.Timedelta(minutes=frozen.cooldown_minutes)).isoformat()
+                    active = None
+                continue
             long = active["signal"] == "LONG"
             stopped = price <= active["stop"] if long else price >= active["stop"]
             targeted = price >= active["target"] if long else price <= active["target"]
@@ -154,6 +163,14 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
 
 
 def forward_once(symbol, candidate, config, now):
+    from goxtrade.execution.profit_service import read_policy
+    try:
+        profit = read_policy()
+        if profit.enabled:
+            candidate = {**candidate, "profit_policy_snapshot": profit.to_dict()}
+    except (ValueError, TypeError):
+        # A damaged new-entry setting must not hide an existing frozen paper owner.
+        candidate = {"strategy_id":candidate.get("strategy_id", "vwap_ema_cross")}
     micro = MICROS[symbol]
     contract = contract_for_symbol(micro)
     strategy_id = candidate.get("strategy_id", "vwap_ema_cross")

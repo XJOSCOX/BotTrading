@@ -78,7 +78,7 @@ def record_decisions(state, candidates, decisions):
 
 
 def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
-                      session_allowed=False, session_reason="Session unavailable", flatten=False):
+                      session_allowed=False, session_reason="Session unavailable", flatten=False, management_histories=None):
     """Observations are actual sequenced trades. Pending entries wait for a later tick."""
     policy.validate()
     state = copy.deepcopy(old)
@@ -106,6 +106,15 @@ def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
         for position in list(state["positions"]):
             exposure = position["exposure"]
             if exposure["symbol"] != symbol or exposure["contract_id"] != contract:
+                continue
+            if position.get("trade_management"):
+                from goxtrade.research.managed_positions import observe_portfolio
+                history = (management_histories or {}).get((symbol, contract))
+                if history is None:
+                    history = (management_histories or {}).get(symbol)
+                bars = history.to_dict("records") if history is not None and history.attrs.get("contract_id") == contract else []
+                observe_portfolio(state, position, price, when, minutes=bars,
+                                  force_reason=position.get("pending_exit") or ("Scheduled flatten" if flatten else None))
                 continue
             candidate = TradeCandidate.from_dict(position["candidate"])
             long = candidate.direction == "LONG"
@@ -146,6 +155,11 @@ def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
                                       "exit_mode": candidate.management_mode, "tick_size": product.tick_size,
                                       "management_started_at": when.isoformat()}, pending_exit=None))
                 state["daily_trades"] += 1
+                from goxtrade.research.managed_positions import attach, observe_portfolio
+                position = state["positions"][-1]
+                attach(position)
+                if position.get("trade_management"):
+                    observe_portfolio(state, position, price, when)
     state["cursor"], state["last_observed_at"] = previous_sequence, previous_time
     # Expiry consumes the intent, but never creates a synthetic fill.
     for pending in list(state["pending"]):
@@ -207,6 +221,8 @@ def manage_completed(state, symbol, minutes, now):
     if closed.empty:
         return
     for position in state["positions"]:
+        if position.get("trade_management"):
+            continue
         exposure = position["exposure"]
         if exposure["symbol"] != symbol or minutes.attrs.get("contract_id") != exposure["contract_id"]:
             continue
