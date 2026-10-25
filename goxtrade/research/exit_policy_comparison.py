@@ -29,7 +29,7 @@ def _group(rows, key):
     return result
 
 
-def compare_exits(datasets, execution_policy, configurations=None, *, candidate_source=None, trade_start=None):
+def compare_exits(datasets, execution_policy, configurations=None, *, candidate_source=None, trade_start=None, progress=None):
     tape = {}
     def record(histories, prices, contracts, now, policy, **identity):
         if trade_start is not None and now < pd.Timestamp(trade_start):
@@ -39,13 +39,13 @@ def compare_exits(datasets, execution_policy, configurations=None, *, candidate_
                                     if candidate_source else candidates_at(histories, prices, contracts, now, policy, configurations=configurations, **identity))
         return tape[now.isoformat()]
     policies = comparison_policies()
-    baseline = run_portfolio_backtest(datasets, execution_policy, configurations, candidate_source=record, profit_policy=policies["baseline"])
+    baseline = run_portfolio_backtest(datasets, execution_policy, configurations, candidate_source=record, profit_policy=policies["baseline"], progress=(lambda value:progress(value/10)) if progress else None)
     results = {"baseline": baseline}
     def replay(histories, prices, contracts, now, policy, **identity):
         return tape[now.isoformat()]
-    for name, policy in policies.items():
+    for index, (name, policy) in enumerate(policies.items()):
         if name != "baseline":
-            results[name] = run_portfolio_backtest(datasets, execution_policy, configurations, candidate_source=replay, profit_policy=policy)
+            results[name] = run_portfolio_backtest(datasets, execution_policy, configurations, candidate_source=replay, profit_policy=policy, progress=(lambda value,i=index:progress((i+value)/10)) if progress else None)
     signals = {time:[candidate.to_dict() for candidate in value[0]] for time, value in tape.items()}
     return dict(kind="exit_policy_comparison", candidate_tape_hash=digest(signals), candidate_events=sum(len(rows) for rows in signals.values()),
                 policies={name:dict(summary=result["summary"], diagnostics=diagnostics(result), trades=result["state"]["trades"],

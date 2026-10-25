@@ -91,7 +91,7 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
     return candidates, waits
 
 
-def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None, profit_policy=None):
+def run_portfolio_backtest(datasets, policy, configurations=None, candidate_source=None, profit_policy=None, progress=None):
     """Each dataset is explicit (instrument, actual contract, finalized minute frame)."""
     policy.validate()
     if policy.commission_per_side is None:
@@ -112,7 +112,9 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
     observations = {symbol: {row["time"]: row for row in frame.to_dict("records")} for symbol, frame in frames.items()}
     times = sorted(set().union(*(set(rows) for rows in observations.values())))
     previous, sequence = {}, 0
-    for now in times:
+    for index, now in enumerate(times):
+        if progress and (index % 50 == 0 or index == len(times)-1):
+            progress(index/max(1,len(times)-1))
         schedule = session_facts(now)
         present = {symbol: rows[now] for symbol, rows in observations.items() if now in rows}
         trades = []
@@ -164,6 +166,9 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
             marked += (state["marks"][exposure["symbol"]]["price"]-exposure["entry"])*(1 if exposure["direction"] == "LONG" else -1)*instrument(exposure["symbol"]).point_value*exposure["quantity"]
             marked -= position["policy"]["commission_per_side"]*exposure["quantity"]
         state["equity"].append(marked)
+        from goxtrade.execution.portfolio_risk import Exposure
+        remaining_risk = sum(Exposure(**item["exposure"]).risk+item["exposure"]["quantity"]*(2*policy.commission_per_side+2*policy.slippage_ticks*instrument(item["exposure"]["symbol"]).tick_value)+policy.protective_buffer for item in (*state["positions"],*state["pending"]))
+        state.setdefault("risk_history",[]).append(dict(time=closed_at.isoformat(),planned_risk=remaining_risk,utilization_percent=100*remaining_risk/policy.max_open_risk))
     return dict(kind="portfolio_backtest", policy=policy.to_dict(), profit_policy=profit_policy.to_dict() if profit_policy else None, configurations=configurations or {}, datasets=hashes,
                 summary=portfolio_summary(state), state=state, broker_checks="NOT_PERFORMED", assumptions="Next observed open; stop first for ambiguous OHLC; gaps marked; no synthetic rollover")
 
