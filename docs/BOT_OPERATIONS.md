@@ -1,5 +1,31 @@
 # Bot operations
 
+## Validation Lab and Real-Time Updates
+
+Use Strategy Validation Lab for historical downloads/imports, reviewed coverage,
+frozen cost/risk/strategy inputs, comparisons and exports. Presets request 7/30/90/
+180 days; provider retention and expired-contract availability are not promised.
+Research snapshots/jobs/results reside in `data/research_lab.db`, never account
+execution tables or the tick-writer database. Cancelling research does not pause
+trading; pausing entries does not cancel research or owned exit management.
+
+Live price frames take priority over heavier account snapshots, with a 250 ms
+local delivery cadence. Account snapshot cache is one second. This does not
+prove exchange/network latency or make stale provider data fresh. Source age and
+local API connection remain distinct. Research progress uses the existing stream,
+with a disconnected fallback; no page reload is required for progress updates.
+
+All seven strategies are selectable for both Practice and Leader. The new VWAP/Box
+Leader opt-ins default off, independent of Practice; all existing preflight, loss,
+freshness, schedule and reconciliation safeguards remain. Installation does not
+activate trading. Existing config fingerprints are preserved. Load new execution
+code through a controlled worker restart before using new capabilities; never
+restart/re-arm blindly while an account has uncertain or unprotected exposure.
+
+See [STRATEGY_VALIDATION_LAB.md](STRATEGY_VALIDATION_LAB.md). The user explicitly
+requested the completed updates consolidated into `main`; historical feature
+branches are retained for recovery and were not deleted.
+
 ## Background app
 
 Double-click either CMD launcher for the persistent native interface menu at

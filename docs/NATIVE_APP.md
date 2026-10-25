@@ -62,8 +62,8 @@ existing worker Python installations are not upgraded by an interface restart.
 
 ## Behavior and Safety
 
-Pages use client-side navigation. WebSocket price/status refreshes run every second;
-shared journal snapshots are cached for three seconds, and chart polling is every
+Pages use client-side navigation. WebSocket prices are delivered on a 250 ms local cadence;
+shared journal snapshots are cached for one second without blocking prices, and chart polling is every
 two seconds. Reconnection does not retry financial mutations. Configuration drafts
 and chart zoom survive ordinary data updates. Price availability still depends on
 the upstream feed and independently running market worker.
@@ -71,7 +71,7 @@ the upstream feed and independently running market worker.
 The API reuses existing broker preflight, strategy, account replacement, loss-lock,
 protective-order and reconciliation services. Saving controls never arms an account.
 Arming requires explicit safeguards and the exact account name, plus a fresh worker
-snapshot for that identity. Existing restrictions, including VWAP Leader prohibition,
+snapshot for that identity. Existing account authorization and risk restrictions
 remain. No order or account authorization was performed to validate this interface.
 
 Credentials remain backend-only. Existing keys are never returned. Saving new
@@ -98,11 +98,11 @@ trading latency or real-market profitability is claimed.
 
 ## Validation
 
-`python -m unittest discover` passed 433 tests with no failures, errors or skips.
+`python -m unittest discover` passed 455 tests with no failures, errors or skips.
 These include local API access controls, sanitized errors, arm preconditions,
 no-startup-side-effects and interface-only restart tests. Broker responses are mocked.
 TypeScript checking and the production build passed. The initial JavaScript bundle
-is approximately 86 KB gzip; the chart library is loaded separately.
+is approximately 91 KB gzip; the chart library is loaded separately.
 
 `python -m tests.test_native_browser` checks desktop/mobile navigation, no overflow,
 WebSocket updates, chart rendering, persistent zoom, resizable indicators and the

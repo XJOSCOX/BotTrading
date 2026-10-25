@@ -111,9 +111,9 @@ filters are not assumed to improve profitability.
 
 ## Lifecycle and Execution
 
-Monitoring defaults on; forward paper and broker Practice default off. Leader is
-prohibited by the registry and submission boundary, regardless of stored policy.
-Practice requires separate strategy permission, Control Center selection, account
+Monitoring defaults on; forward paper and both broker opt-ins default off. Practice
+and Leader now expose the same capabilities, each requiring its own explicit
+strategy permission, Control Center selection, account
 arming, reviewed calendar, fresh data and all existing account/broker protections.
 No copier settings are changed. No account was armed and no broker orders were
 submitted during implementation or validation.
@@ -214,8 +214,9 @@ Pending validation: restore ProjectX access; review official product schedules a
 calendar coverage; obtain complete same-contract prior-session and current-session
 history; run meaningful real-data parameter/walk-forward comparisons with costs;
 restart workers through guarded maintenance; observe fresh market-open monitoring;
-only then consider explicit Practice permission and authorization. Leader support
-requires a separately reviewed change and cannot be enabled by these settings.
+only then consider explicit account permission and authorization. Leader parity
+was subsequently added at the user's request in the Validation Lab milestone;
+the same safeguards apply to both accounts and installation enables neither.
 
 Known limits: no order-book/queue or bid/ask execution model, no reconstructed
 intrabar paths from OHLC, no synthetic rollover, strict coverage can suppress valid

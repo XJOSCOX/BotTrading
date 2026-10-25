@@ -15,10 +15,11 @@ CONFIRMED mode, three-minute candles, EMA9 Close, VWAP OHLC4, futures-session
 All optional directional/session/volume/volatility/distance filters default off.
 Risk controls outside the strategy remain mandatory.
 
-Leader execution is **prohibited**, not merely unchecked in the UI. Registry
-eligibility is enforced when selecting, claiming, building and submitting orders.
-Practice requires the new strategy permission, an explicit account arming action,
-selection in the account strategy list and all existing preflight checks.
+Practice and Leader have the same strategy capabilities. Both require independent
+strategy permission, an explicit account arming action, selection in that account's
+strategy list and all existing preflight checks. Both opt-ins default off; enabling
+one does not authorize the other. This supersedes the original Practice-only rule
+at the user's explicit request during the Validation Lab milestone.
 Enabling this strategy cannot enable a paused profile.
 
 ## Calculation and TradingView Interpretation
