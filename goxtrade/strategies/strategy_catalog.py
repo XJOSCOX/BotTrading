@@ -32,9 +32,14 @@ SPECS = (
                  execution_profiles=("practice",), risk_policy="strategy-snapshot-v1",
                  required_data=("complete_session_trade_ohlcv", "fresh_trade", "broker_reconciliation"),
                  entry_policy="indicator-event-v1", runtime_adapter="goxtrade.strategies.vwap_ema_runtime"),
+    StrategySpec("previous_day_box", "Previous Day Box Reversal", signal_minutes=15,
+                 indicators=("previous_session_box", "rejection", "sweep", "confirmed_structure"),
+                 lookback_bars=1440, execution_profiles=("practice",), risk_policy="previous-box-snapshot-v1",
+                 required_data=("complete_previous_contract_session", "completed_15m", "fresh_trade", "broker_reconciliation"),
+                 entry_policy="previous-box-v1", runtime_adapter="goxtrade.strategies.previous_day_box_runtime"),
 )
 STRATEGIES = tuple(spec.name for spec in SPECS)
-LEGACY_STRATEGIES = STRATEGIES[:-1]
+LEGACY_STRATEGIES = tuple(spec.name for spec in SPECS if spec.runtime_adapter is None)
 NEW_STRATEGIES = LEGACY_STRATEGIES[2:]
 DEFAULT_EXECUTION = ("CRT", "Reversal")
 
@@ -87,6 +92,28 @@ def execution_block(signal, profile):
         return "Unknown strategy is not eligible for execution"
     if profile not in spec.execution_profiles:
         return f"{spec.name} is disabled for {profile.title()} execution"
+    if spec.id == "previous_day_box":
+        from goxtrade.strategies.strategy_settings import read_previous_day_box_config
+        from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+        current = read_previous_day_box_config()
+        if not current.practice_enabled or not current.monitor_enabled:
+            return "Previous Day Box Practice execution has not been explicitly enabled"
+        if (signal.get("reference_symbol") or signal.get("symbol")) and (signal.get("reference_symbol") or signal.get("symbol")) not in current.enabled_symbols:
+            return "Previous Day Box symbol is disabled"
+        if "entry" in signal or "alert_id" in signal:
+            try:
+                frozen = PreviousDayBoxConfig.from_dict(snapshot)
+                valid = (isinstance(snapshot,dict) and signal.get("entry_policy")==spec.entry_policy
+                         and signal.get("config_fingerprint")==frozen.fingerprint and signal.get("signal_minutes")==15
+                         and signal.get("entry_mode")=="CONFIRMED" and signal.get("source_contract")
+                         and signal.get("unique_setup_id") and signal.get("consumption_key"))
+                from goxtrade.strategies.previous_day_box import setup_keys
+                consumed,unique = setup_keys({**signal,"symbol":signal.get("reference_symbol") or signal.get("symbol")})
+                valid = valid and consumed==signal.get("consumption_key") and unique==signal.get("unique_setup_id")
+                if not valid: return "Incomplete or inconsistent previous-day box execution envelope"
+            except (ValueError,TypeError,KeyError):
+                return "Invalid frozen previous-day box configuration"
+        return None
     if marked and spec.id != "vwap_ema_cross":
         return "Indicator metadata does not match the declared legacy strategy"
     if spec.entry_policy != "indicator-event-v1" and signal.get("signal_minutes", spec.signal_minutes) != spec.signal_minutes:
@@ -127,7 +154,7 @@ def order_block(signal, profile, now=None):
     blocked = execution_block(signal, profile)
     if blocked:
         return blocked
-    if signal.get("strategy_id") == "vwap_ema_cross" or signal.get("strategy") == "VWAP EMA Cross":
+    if signal.get("strategy_id") in ("vwap_ema_cross","previous_day_box") or signal.get("strategy") in ("VWAP EMA Cross","Previous Day Box Reversal"):
         from datetime import datetime, timezone
         from goxtrade.market.calendar_guard import entry_block
         return entry_block(now or datetime.now(timezone.utc))

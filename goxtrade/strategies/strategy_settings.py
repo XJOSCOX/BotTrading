@@ -5,6 +5,25 @@ from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
 import json
 
 
+def read_previous_day_box_config():
+    from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+    with closing(connect()) as conn:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategy_parameters'").fetchone():
+            return PreviousDayBoxConfig()
+        row = conn.execute("SELECT record FROM strategy_parameters WHERE strategy_id='previous_day_box'").fetchone()
+    return PreviousDayBoxConfig.from_dict(json.loads(row[0])) if row else PreviousDayBoxConfig()
+
+
+def save_previous_day_box_config(values):
+    from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+    config = PreviousDayBoxConfig.from_dict(values)
+    with closing(connect()) as conn:
+        conn.execute("CREATE TABLE IF NOT EXISTS strategy_parameters (strategy_id TEXT PRIMARY KEY,record TEXT NOT NULL)")
+        conn.execute("INSERT INTO strategy_parameters VALUES (?,?) ON CONFLICT(strategy_id) DO UPDATE SET record=excluded.record", ("previous_day_box",json.dumps(config.to_dict())))
+        conn.commit()
+    return config
+
+
 def read_vwap_ema_config():
     with closing(connect()) as conn:
         if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategy_parameters'").fetchone():

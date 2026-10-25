@@ -71,7 +71,7 @@ def closed_trade(active, exit_price, stamp, reason, symbol, spec, sim, ambiguous
     gross = (exit_fill-active["entry"])*sign*contract.point_value*sim.quantity
     costs = 2*sim.commission_per_side*sim.quantity
     risk = abs(active["entry"]-active["initial_stop"])*contract.point_value*sim.quantity
-    return dict(strategy=spec.name, strategy_id=spec.id, symbol=contract.symbol,
+    record = dict(strategy=spec.name, strategy_id=spec.id, symbol=contract.symbol,
                 contract_id=active["contract_id"], timeframe=active["signal_minutes"],
                 entry_mode=active.get("entry_mode", "CONFIRMED"), session=active["session"],
                 direction=active["signal"], entry_time=active["entry_time"], exit_time=stamp.isoformat(),
@@ -85,6 +85,9 @@ def closed_trade(active, exit_price, stamp, reason, symbol, spec, sim, ambiguous
                 source_contract=active.get("source_contract"), session_id=active.get("session_id"),
                 fill_validation=active.get("fill_validation"),
                 simulation_parameters=asdict(sim), test_type="historical_backtest")
+    if spec.id=="previous_day_box":
+        record.update({name:active.get(name) for name in ("box","consumption_key","confirmation_method","reference_entry","config_snapshot")})
+    return record
 
 
 def manage_after_close(active, bar, known, stamp):
@@ -115,6 +118,9 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
     signal_symbol = instrument(symbol).symbol + "=F"
     if config:
         config = replace(config, monitor_enabled=True, enabled_symbols=(signal_symbol,))
+    if spec.id == "previous_day_box":
+        from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+        config = replace(PreviousDayBoxConfig.from_dict(strategy_config), monitor_enabled=True, enabled_symbols=(signal_symbol,))
     frame = validate_dataset(minutes, contract_id, sim.rollover_policy)
     tick = instrument(symbol).tick_size
     if ((frame[["open", "high", "low", "close"]]/tick).sub((frame[["open", "high", "low", "close"]]/tick).round()).abs() > 1e-6).any().any():
@@ -129,6 +135,7 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
     contract = instrument(symbol)
     slip = sim.slippage_ticks*contract.tick_size
     observation, seen, active, pending_exit = {}, set(), None, None
+    box_entries = {}
     next_entry = start
     trades, decisions, equity = [], {}, [sim.starting_balance]
     balance = sim.starting_balance
@@ -145,18 +152,24 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
             balance += trade["net"]
             gap_exits += int(gap)
             active, pending_exit = None, None
-            next_entry = now+pd.Timedelta(minutes=sim.cooldown_minutes)
+            next_entry = now+pd.Timedelta(minutes=max(sim.cooldown_minutes,config.cooldown_minutes if spec.id=="previous_day_box" else 0))
         known = frame.iloc[:index]
         raw = dict(signal="WAIT")
         bucket = now.floor(f"{config.signal_minutes if config else spec.signal_minutes}min")
         if index and now >= start and bucket != evaluated_bucket:
             evaluated_bucket = bucket
-            if config:
+            if spec.id == "previous_day_box":
+                from goxtrade.strategies.previous_day_box import evaluate_previous_day_box
+                known = known.copy()
+                known.attrs.update(frame.attrs)
+                raw, _ = evaluate_previous_day_box(known,bar["open"],now,config,symbol=signal_symbol,contract_id=contract_id,historical=True)
+                if raw["signal"]=="WAIT": decisions[raw["reason"]]=decisions.get(raw["reason"],0)+1
+            elif config:
                 raw, _, observation = evaluate_vwap_ema_cross(known, bar["open"], now, config,
                                                               observation, historical=True, symbol=signal_symbol)
             else:
                 raw = legacy_candidate(known, bar["open"], now, symbol, spec.name, strategy_config)
-        event = raw.get("unique_setup_id")
+        event = raw.get("consumption_key") or raw.get("unique_setup_id")
         direction = raw.get("direction", raw.get("signal"))
         new = direction in ("LONG", "SHORT") and event not in seen
         if event:
@@ -166,11 +179,22 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
             sign = 1 if direction == "LONG" else -1
             fill = bar["open"]+sign*slip
             validation = fill_validation(raw, fill, symbol, sim)
+            if spec.id == "previous_day_box":
+                from goxtrade.strategies.previous_day_box import validate_entry
+                invalid = validate_entry(raw,fill,now,contract_id)
+                box_key = raw["session_id"]
+                if config.max_entries_per_box and box_entries.get(box_key,0)>=config.max_entries_per_box:
+                    invalid = "Maximum entries per box reached"
+                risk = abs(fill-raw["stop"])
+                effective = (abs(raw["target"]-fill)-2*sim.slippage_ticks*contract.tick_size-2*sim.commission_per_side/contract.point_value)/risk if risk else 0
+                if config.minimum_effective_rr and effective<config.minimum_effective_rr: invalid = "Box minimum effective RR after costs failed"
+                if invalid: validation.update(valid=False,reason=invalid)
             if validation["valid"]:
                 active = {**raw, "signal": direction, "entry": fill, "initial_stop": raw["stop"],
                           "fill_validation": validation,
                           "entry_time": now.isoformat(), "management_started_at": now.isoformat(),
                           "session": market_session(now.to_pydatetime())["name"], "contract_id": contract_id}
+                if spec.id == "previous_day_box": box_entries[box_key]=box_entries.get(box_key,0)+1
             else:
                 decisions[validation["reason"]] = decisions.get(validation["reason"], 0)+1
         elif new:
@@ -190,7 +214,7 @@ def run_backtest(minutes, symbol, contract_id, strategy="VWAP EMA Cross", strate
                 trades.append(trade)
                 balance += trade["net"]
                 active = None
-                next_entry = closed_at+pd.Timedelta(minutes=sim.cooldown_minutes)
+                next_entry = closed_at+pd.Timedelta(minutes=max(sim.cooldown_minutes,config.cooldown_minutes if spec.id=="previous_day_box" else 0))
             else:
                 pending_exit = manage_after_close(active, bar, frame.iloc[:index+1], closed_at)
         marked = balance
@@ -213,7 +237,7 @@ def _result(frame, trades, decisions, active, spec, config, sim, equity, gap_exi
                                 unrealized_pnl=equity[-1]-(sim.starting_balance+closed_net-open_fees)),
                 monthly_returns=monthly_returns(trades, sim.starting_balance),
                 summary=statistics(trades, sim.starting_balance, duration, equity),
-                breakdown={key: breakdown(trades, key) for key in ("session", "symbol", "entry_mode", "month")},
+                breakdown={key: breakdown(trades, key) for key in ("session", "symbol", "entry_mode", "month", "direction")},
                 config=config.to_dict() if config else {}, simulation=asdict(sim),
                 dataset_hash=dataset_hash(frame), contract_id=frame.attrs["contract_id"],
                 contract_validation="ProjectX product matched" if frame.attrs["contract_id"].startswith("CON.F.US.") else "Caller-declared provider contract; not independently verified",

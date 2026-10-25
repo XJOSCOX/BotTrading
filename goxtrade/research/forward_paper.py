@@ -25,10 +25,14 @@ def paper_sim(config, quantity=None):
     return SimulationConfig(quantity=quantity or config.paper_quantity, commission_per_side=config.paper_commission_per_side,
                             zero_cost_sensitivity=config.paper_zero_cost_sensitivity, slippage_ticks=config.paper_slippage_ticks,
                             max_initial_risk_usd=config.paper_max_initial_risk_usd or None,
-                            minimum_effective_rr=config.paper_min_effective_rr)
+                            minimum_effective_rr=max(config.paper_min_effective_rr,getattr(config,"minimum_effective_rr",0)))
 
 
 def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config, now):
+    from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+    box_strategy = isinstance(config,PreviousDayBoxConfig)
+    config_class = PreviousDayBoxConfig if box_strategy else VwapEmaConfig
+    spec = strategy_spec("previous_day_box" if box_strategy else "vwap_ema_cross")
     state = copy.deepcopy(state)
     trades = []
     active, pending = state.get("active"), state.get("pending")
@@ -64,7 +68,7 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
             continue
         state["last_trade_time"] = stamp.isoformat()
         if active:
-            frozen = VwapEmaConfig.from_dict(active["config_snapshot"])
+            frozen = config_class.from_dict(active["config_snapshot"])
             sim = paper_sim(frozen, active["quantity"])
             long = active["signal"] == "LONG"
             stopped = price <= active["stop"] if long else price >= active["stop"]
@@ -80,7 +84,7 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
                 if price <= active["stop"] if long else price >= active["stop"]:
                     reason = reason or "Paper updated protective stop crossed"
             if reason:
-                trade = closed_trade(active, price, stamp, reason, symbol, strategy_spec("vwap_ema_cross"), sim)
+                trade = closed_trade(active, price, stamp, reason, symbol, spec, sim)
                 trade.update(test_type="forward_paper", provenance="Actual micro trade observations / simulated fills",
                              detection_sequence=active["detection_sequence"], entry_sequence=active["entry_sequence"],
                              exit_sequence=tick["id"])
@@ -96,11 +100,26 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
             eligible &= (stamp-pd.Timestamp(pending["detected_at"])).total_seconds() < pending["entry_window_seconds"]
             eligible &= execution_schedule(stamp.to_pydatetime())["allow_entry"]
             if eligible:
-                frozen = VwapEmaConfig.from_dict(pending["config_snapshot"])
+                frozen = config_class.from_dict(pending["config_snapshot"])
                 direction = pending.get("direction", pending["signal"])
                 sign = 1 if direction == "LONG" else -1
                 fill = price+sign*frozen.paper_slippage_ticks*instrument(symbol).tick_size
                 validation = fill_validation(pending, fill, symbol, paper_sim(frozen))
+                if box_strategy:
+                    from goxtrade.strategies.previous_day_box import validate_entry
+                    invalid = validate_entry(pending,fill,stamp)
+                    risk = abs(fill-pending["stop"])
+                    effective = (abs(pending["target"]-fill)-2*frozen.paper_commission_per_side/instrument(symbol).point_value-frozen.paper_slippage_ticks*instrument(symbol).tick_size)/risk if risk else 0
+                    if frozen.minimum_effective_rr and effective<frozen.minimum_effective_rr:
+                        invalid = "Paper effective RR after costs failed"
+                    count = state.setdefault("box_entries",{}).get(pending["session_id"],0)
+                    if frozen.max_entries_per_box and count>=frozen.max_entries_per_box:
+                        invalid = "Maximum paper entries per box reached"
+                    if invalid:
+                        pending = None
+                        state["message"] = invalid
+                        continue
+                    state["box_entries"][pending["session_id"]] = count+1
                 active = {**pending, "signal": direction, "entry": fill, "initial_stop": pending["stop"],
                           "fill_validation": validation,
                           "entry_time": stamp.isoformat(), "management_started_at": stamp.isoformat(),
@@ -110,7 +129,7 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
                 reached = price >= active["target"] if sign == 1 else price <= active["target"]
                 if not validation["valid"] or breached or (reached and active["exit_mode"] not in ("structure-v1", "trailing")):
                     sim = paper_sim(frozen, active["quantity"])
-                    trade = closed_trade(active, price, stamp, "Paper immediate protection after fill", symbol, strategy_spec("vwap_ema_cross"), sim)
+                    trade = closed_trade(active, price, stamp, "Paper immediate protection after fill", symbol, spec, sim)
                     trade.update(test_type="forward_paper", provenance="Actual micro trades / simulated fills",
                                  detection_sequence=active["detection_sequence"], entry_sequence=tick["id"], exit_sequence=tick["id"])
                     trades.append(trade)
@@ -118,7 +137,7 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
                     active = None
             state["message"] = "Paper entry filled on a subsequent micro trade" if active else "Paper entry expired or no eligible fresh micro trade"
             pending = None
-    event = candidate.get("crossover_key") or candidate.get("unique_setup_id")
+    event = candidate.get("consumption_key") or candidate.get("crossover_key") or candidate.get("unique_setup_id")
     seen = state.setdefault("seen_events", [])
     if state.get("seen_event") and state["seen_event"] not in seen:
         seen.append(state["seen_event"])
@@ -137,7 +156,8 @@ def advance_paper(state, candidate, ticks, minutes, symbol, contract_id, config,
 def forward_once(symbol, candidate, config, now):
     micro = MICROS[symbol]
     contract = contract_for_symbol(micro)
-    identity = "vwap_ema_cross|" + micro
+    strategy_id = candidate.get("strategy_id", "vwap_ema_cross")
+    identity = strategy_id+"|" + micro
     with closing(connect()) as conn:
         exists = conn.execute("SELECT 1 FROM sqlite_master WHERE name='strategy_paper_states'").fetchone()
         if not exists and not config.paper_enabled:
@@ -147,7 +167,7 @@ def forward_once(symbol, candidate, config, now):
         row = conn.execute("SELECT record FROM strategy_paper_states WHERE identity=?", (identity,)).fetchone()
         persisted_old = json.loads(row[0]) if row else {}
         old = copy.deepcopy(persisted_old)
-        if old.get("consumption_version", 1) < 2:
+        if old.get("consumption_version", 1) < 2 and strategy_id=="vwap_ema_cross":
             from goxtrade.strategies.strategy_catalog import crossover_key
             known = list(old.get("seen_events", []))
             if old.get("seen_event"):

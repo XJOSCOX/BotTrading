@@ -6,4 +6,5 @@ requests
 signalrcore
 fastapi==0.162.0
 uvicorn[standard]==0.54.0
+pandas-market-calendars==5.5.0
 

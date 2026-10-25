@@ -24,7 +24,7 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
                 continue
             state["cursor"] = tick["id"]
             price = float(tick["price"])
-            if active.get("strategy_id") == "vwap_ema_cross":
+            if active.get("strategy_id") in ("vwap_ema_cross","previous_day_box"):
                 from goxtrade.strategies.adaptive_exit import timestamp
                 stamp = timestamp(dict(tick).get("event_time") or dict(tick).get("received_at"))
                 entered = timestamp(active.get("management_started_at") or active.get("detected_at"))
@@ -74,7 +74,7 @@ def advance_signal(state, candidate, setup_id, ticks, allow_new=True, management
             if active.get("exit_mode") in (MODE, "trailing", "breakeven"):
                 active.update(initial_stop=active["stop"], management_started_at=datetime.now(timezone.utc).isoformat(),
                               management_status="Holding / original stop", trail_armed=False, structure_breaks=0)
-            if active.get("strategy_id") == "vwap_ema_cross":
+            if active.get("strategy_id") in ("vwap_ema_cross","previous_day_box"):
                 active["management_started_at"] = active.get("detected_at") or datetime.now(timezone.utc).isoformat()
             state.update(active=active, cursor=ticks[-1]["id"], exit=None, event_id=None)
         else:
@@ -109,7 +109,7 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT state FROM signal_lifecycle WHERE symbol=? AND strategy=?", (symbol, strategy)).fetchone()
         state = json.loads(row["state"]) if row else {}
-        event = candidate.get("crossover_key") or candidate.get("unique_setup_id")
+        event = candidate.get("consumption_key") or candidate.get("crossover_key") or candidate.get("unique_setup_id")
         if (allow_new and not state.get("active") and setup_id != state.get("seen") and candidate.get("crossover_key")
                 and not conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone()):
             from goxtrade.strategies.strategy_catalog import crossover_key
@@ -119,10 +119,13 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
                     break
         if event and conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone():
             allow_new = False
+        box_active = (state.get("active") or candidate).get("strategy_id")=="previous_day_box"
+        contract_filter = " AND contract_id=? AND event_type='trade'" if box_active else ""
+        contract_args = ((state.get("active") or candidate).get("source_contract"),) if box_active else ()
         if state.get("active"):
-            ticks = conn.execute(f"SELECT id, price,event_time,received_at FROM live_ticks WHERE symbol=? AND id>? AND {price_predicate(symbol)} ORDER BY id", (symbol, state["cursor"])).fetchall()
+            ticks = conn.execute(f"SELECT id, price,event_time,received_at FROM live_ticks WHERE symbol=? AND id>? AND {price_predicate(symbol)}{contract_filter} ORDER BY id", (symbol, state["cursor"],*contract_args)).fetchall()
         else:
-            ticks = conn.execute(f"SELECT id, price FROM live_ticks WHERE symbol=? AND {price_predicate(symbol)} ORDER BY id DESC LIMIT 1", (symbol,)).fetchall()
+            ticks = conn.execute(f"SELECT id, price FROM live_ticks WHERE symbol=? AND {price_predicate(symbol)}{contract_filter} ORDER BY id DESC LIMIT 1", (symbol,*contract_args)).fetchall()
         updated, signal = advance_signal(state, candidate, setup_id, ticks, allow_new, management_bars)
         active = updated.get('active') or state.get('active')
         if active and not updated.get('event_id'):
@@ -132,7 +135,7 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
             updated['event_id'] = cur.lastrowid
             if event:
                 conn.execute("INSERT OR IGNORE INTO strategy_event_consumption VALUES (?,?)", (event, cur.lastrowid))
-            bot_audit.emit(f"signal:{updated['event_id']}:entry", "Signal detected", f"{symbol} / {strategy} / {active.get('raw_signal', active['signal'])} / {active.get('trigger_detail', active.get('reason'))}", updated['event_id'], notify=active.get('strategy_id') == 'vwap_ema_cross' and active.get('config_snapshot', {}).get('notify_signals', False), conn=conn)
+            bot_audit.emit(f"signal:{updated['event_id']}:entry", "Signal detected", f"{symbol} / {strategy} / {active.get('raw_signal', active['signal'])} / {active.get('trigger_detail', active.get('reason'))}", updated['event_id'], notify=active.get('strategy_id') in ('vwap_ema_cross','previous_day_box') and active.get('config_snapshot', {}).get('notify_signals', False), conn=conn)
         if state.get('active') and not updated.get('active') and updated.get('event_id'):
             row = conn.execute('SELECT record FROM bot_alert_history WHERE id=?', (updated['event_id'],)).fetchone()
             record = json.loads(row['record'])

@@ -104,15 +104,25 @@ def claim(job):
                 stored = json.loads(signal[0])
                 if stored.get("status") != "Active" or execution_block(stored, PROFILE):
                     return False
-                if stored.get("strategy_id") == "vwap_ema_cross" and any(job.get(key) != stored.get(key)
-                        for key in ("strategy_id", "strategy", "unique_setup_id", "config_fingerprint", "entry_mode", "signal_minutes")):
+                if stored.get("strategy_id") in ("vwap_ema_cross","previous_day_box") and any(job.get(key) != stored.get(key)
+                        for key in ("strategy_id", "strategy", "unique_setup_id", "config_fingerprint", "entry_mode", "signal_minutes", "consumption_key")):
                     return False
-        event = job.get("crossover_key") or job.get("unique_setup_id")
+        event = job.get("consumption_key") or job.get("crossover_key") or job.get("unique_setup_id")
         if event:
             conn.execute(f"CREATE TABLE IF NOT EXISTS {PROFILE}_entry_events (setup_id TEXT PRIMARY KEY,alert_id INTEGER NOT NULL)")
             if conn.execute(f"SELECT 1 FROM {PROFILE}_entry_events WHERE setup_id=?", (event,)).fetchone():
                 return False
         active = [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {PROFILE}_jobs")]
+        if job.get("strategy_id")=="previous_day_box":
+            from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+            frozen = PreviousDayBoxConfig.from_dict(job.get("config_snapshot"))
+            same = [old for old in active if old.get("strategy_id")=="previous_day_box" and old.get("source_contract")==job.get("source_contract") and old.get("state")!="Rejected"]
+            count = sum(old.get("session_id")==job.get("session_id") for old in same)
+            if frozen.max_entries_per_box and count>=frozen.max_entries_per_box:
+                return False
+            closes = [datetime.fromisoformat(old["closed_confirmed_at"]).timestamp() for old in same if old.get("closed_confirmed_at")]
+            if closes and time.time()<max(closes)+frozen.cooldown_minutes*60:
+                return False
         if event:
             for old in active:
                 if old.get("unique_setup_id") == job.get("unique_setup_id") or old.get("crossover_key") == event:
@@ -251,8 +261,18 @@ def build_order(signal, contract, quantity, max_loss=None):
         raise ValueError("Not the active micro contract")
     if not str(contract.get("id", "")).startswith("CON.F.US." + micro + "."):
         raise ValueError("Contract ID is not an approved micro")
-    if signal.get("strategy_id") == "vwap_ema_cross" and str(signal.get("source_contract", "")).split(".")[-1] != contract["id"].split(".")[-1]:
+    if signal.get("strategy_id") in ("vwap_ema_cross","previous_day_box") and str(signal.get("source_contract", "")).split(".")[-1] != contract["id"].split(".")[-1]:
         raise ValueError("Indicator reference and executable micro contract expiries do not match")
+    if signal.get("strategy_id") == "previous_day_box":
+        from goxtrade.strategies.previous_day_box import validate_entry
+        from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
+        blocked = validate_entry(signal,signal.get("entry"),datetime.now(timezone.utc))
+        if blocked: raise ValueError(blocked)
+        frozen = PreviousDayBoxConfig.from_dict(signal["config_snapshot"])
+        risk = abs(signal["entry"]-signal["stop"])
+        net_reward = abs(signal["target"]-signal["entry"])-2*frozen.estimated_commission_per_side/point_value-2*frozen.paper_slippage_ticks*tick_size
+        if frozen.minimum_effective_rr and net_reward/risk<frozen.minimum_effective_rr:
+            raise ValueError("Box minimum effective RR after estimated costs failed")
     if type(quantity) is not int or not 1 <= quantity <= 4 or signal.get("signal") not in ("LONG", "SHORT"):
         raise ValueError("Invalid direction or quantity")
     entry, stop = float(signal["entry"]), float(signal.get("initial_stop", signal["stop"]))
@@ -415,8 +435,13 @@ def cycle(token):
             signal = history.get(job["alert_id"])
             risk_stop = gate["locked"]
             scheduled_exit = execution_schedule()["flatten"]
-            if (not protected and time.time() - job["sent_at"] > 15) or (signal and signal["status"] == "Closed") or risk_stop or settings.get("emergency_close") or scheduled_exit:
-                job["close_reason"] = ("User emergency close" if settings.get("emergency_close") else "$500 account loss lock" if risk_stop else "Scheduled 15:05 CT flatten" if scheduled_exit else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
+            invalid_box_fill = False
+            if signal and job.get("strategy_id")=="previous_day_box":
+                fill = job["fill_price"]
+                original_stop = signal.get("initial_stop",signal["stop"])
+                invalid_box_fill = not (original_stop<fill<signal["target"] if job["side"]==0 else signal["target"]<fill<original_stop)
+            if (not protected and time.time() - job["sent_at"] > 15) or (signal and signal["status"] == "Closed") or risk_stop or settings.get("emergency_close") or scheduled_exit or invalid_box_fill:
+                job["close_reason"] = ("Invalid box stop/target after actual broker fill" if invalid_box_fill else "User emergency close" if settings.get("emergency_close") else "$500 account loss lock" if risk_stop else "Scheduled 15:05 CT flatten" if scheduled_exit else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
                 bot_audit.emit(f"job:{job['alert_id']}:exit", "Exit decision", job["close_reason"], job["alert_id"], severity="warning" if risk_stop or not protected else "info", notify=True)
                 job["close_time"] = time.time()
                 close_job(job, token)
@@ -560,6 +585,8 @@ def cycle(token):
                    config_snapshot=signal.get("config_snapshot"),account_profile=PROFILE,
                    entry_policy=signal.get("entry_policy"),config_fingerprint=signal.get("config_fingerprint"),
                    crossover_key=signal.get("crossover_key"),reference_symbol=signal["symbol"],
+                   consumption_key=signal.get("consumption_key"),box=signal.get("box"),
+                   confirmation_method=signal.get("confirmation_method"),
                    source_contract=signal.get("source_contract"),session_id=signal.get("session_id"),
                    candle_time=signal.get("candle_time"),direction=signal.get("direction", signal["signal"]),
                    initial_risk_usd=abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"],
