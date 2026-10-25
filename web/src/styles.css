@@ -622,6 +622,13 @@ main {
 .trade-management .table-scroll table {
   min-width: max-content;
 }
+
+.operational-acceptance .table-scroll td {
+  overflow-wrap: normal;
+}
+.operational-acceptance .table-scroll td:first-child {
+  white-space: nowrap;
+}
 .trade-management .table-scroll td {
   white-space: nowrap;
   overflow-wrap: normal;

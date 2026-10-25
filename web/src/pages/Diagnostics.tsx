@@ -13,14 +13,24 @@ function DiagnosticsPage(_: PageProps) {
     [start, setStart] = useState(""),
     [end, setEnd] = useState(""),
     [live, setLive] = useState(false);
-  const load = async () => setData(await api("/diagnostics"));
+  const load = async () => {
+    try {
+      setData(await api("/diagnostics"));
+      setError("");
+    } catch (e) {
+      setError(String(e));
+    }
+  };
   useEffect(() => {
     let stopped = false;
     let timer: ReturnType<typeof setTimeout>;
     const refresh = async () => {
       try {
         const r = await api("/diagnostics");
-        if (!stopped) setData(r);
+        if (!stopped) {
+          setData(r);
+          setError("");
+        }
       } catch (e) {
         if (!stopped) setError(String(e));
       }
@@ -204,6 +214,136 @@ function DiagnosticsPage(_: PageProps) {
             r.contract_id,
             r.state,
           ])}
+        />
+      </section>
+      <section className="operational-acceptance">
+        <h2>Operational acceptance</h2>
+        <Notice>
+          {data.operational?.restrictions || "Readiness unavailable"}
+        </Notice>
+        <Table
+          heads={["Storage", "Evidence status"]}
+          rows={["production", "research", "replay"].map((key) => [
+            key,
+            data.operational?.[key]?.storage || "UNKNOWN",
+          ])}
+        />
+        <h3>Strategy readiness</h3>
+        <Table
+          heads={[
+            "Strategy",
+            "Monitor",
+            "Quote",
+            "History",
+            "Current signal",
+            "Last manager rejection / research-shadow",
+          ]}
+          rows={(data.operational?.strategies || []).map((r: Json) => [
+            r.name,
+            r.monitoring,
+            r.quote_fresh ? "Fresh observation" : "STALE / UNAVAILABLE",
+            r.history_readiness,
+            r.latest_signal,
+            r.last_rejection || "No recorded rejection / unknown",
+          ])}
+        />
+        <h3>Research readiness</h3>
+        <Table
+          heads={["Check", "Saved local evidence"]}
+          rows={[
+            [
+              "Datasets",
+              data.operational?.research?.evidence?.dataset_count ?? "UNKNOWN",
+            ],
+            [
+              "Eligible metadata / verify integrity on use",
+              data.operational?.research?.evidence?.eligible_metadata_count ??
+                "UNKNOWN",
+            ],
+            [
+              "Historical runs",
+              data.operational?.research?.evidence?.run_count ?? "UNKNOWN",
+            ],
+            [
+              "Latest historical run",
+              ct(data.operational?.research?.evidence?.latest_run_at),
+            ],
+            [
+              "Portfolio comparison",
+              data.operational?.research?.evidence?.portfolio_comparison
+                ? "Saved comparison"
+                : "NOT VERIFIED / NO SAVED COMPARISON",
+            ],
+            [
+              "Exit comparison",
+              data.operational?.research?.evidence?.exit_comparison
+                ? "Saved comparison"
+                : "NOT VERIFIED / NO SAVED COMPARISON",
+            ],
+            [
+              "Replay readiness",
+              data.operational?.research?.evidence?.replay_readiness ||
+                "UNKNOWN",
+            ],
+            [
+              "Replay sessions",
+              data.operational?.replay?.evidence?.session_count ?? "UNKNOWN",
+            ],
+            [
+              "Latest replay",
+              data.operational?.replay?.evidence?.latest_status || "UNKNOWN",
+            ],
+          ]}
+        />
+        <h3>Account safety evidence</h3>
+        <Table
+          heads={[
+            "Profile",
+            "Saved entry setting",
+            "Selection / additional opt-ins",
+            "Loss lock",
+            "Recent broker snapshot",
+            "Positions / orders",
+            "Unresolved jobs",
+            "Protection",
+          ]}
+          rows={["practice", "leader"].map((profile) => {
+            const r =
+              data.operational?.production?.evidence?.profiles?.[profile];
+            return [
+              profile,
+              r?.saved_enabled == null
+                ? "UNKNOWN"
+                : r.saved_enabled
+                  ? "Enabled / verify worker"
+                  : "Paused setting",
+              <>
+                <span>
+                  {r?.selected_strategies?.join(", ") || "NONE / UNKNOWN"}
+                </span>
+                <br />
+                {Object.entries(r?.strategy_opt_ins || {})
+                  .map(
+                    ([name, allowed]) =>
+                      `${name}: ${allowed == null ? "UNKNOWN" : allowed ? "on" : "off"}`,
+                  )
+                  .join("; ")}
+              </>,
+              r?.loss_locked == null
+                ? "UNKNOWN"
+                : r.loss_locked
+                  ? "LOCKED"
+                  : "Saved clear / verify balance",
+              r?.broker_snapshot_recent
+                ? "Recent saved observation"
+                : "STALE / UNAVAILABLE",
+              `${r?.broker_positions ?? "?"} / ${r?.broker_orders ?? "?"}`,
+              r?.unresolved_jobs == null
+                ? "UNKNOWN"
+                : `${r.unresolved_jobs}${r.ambiguous_jobs ? " / ambiguous ownership" : ""}${r.jobs_truncated ? " / bounded view" : ""}`,
+              `${r?.saved_stops_verified ?? "?"} saved stop checks / ${r?.broker_protection || "NOT VERIFIED"}`,
+            ];
+          })}
         />
       </section>
       <section>

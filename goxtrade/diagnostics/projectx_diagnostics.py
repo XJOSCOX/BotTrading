@@ -60,7 +60,8 @@ def configuration():
     from goxtrade.execution.contracts import symbols_with_contracts
     try:
         targets=current_targets()
-        profiles={p:bool(t.get("id") and t.get("name")) for p,t in targets.items()}
+        profiles={p:(type(t.get("id")) is int and t["id"]>0 and isinstance(t.get("name"),str)
+                     and bool(t["name"].strip()) and not t["name"].startswith("YOUR_")) for p,t in targets.items()}
     except (ValueError,KeyError):profiles=dict(practice=False,leader=False)
     try:mappings=[dict(symbol=r["symbol"],contract_id=r["contract_id"]) for r in symbols_with_contracts(["NQ=F","ES=F","YM=F","MNQ=F","MES=F","MYM=F"])]
     except Exception:mappings=[]
@@ -97,13 +98,15 @@ def passive(now=None):
     source=[pd.to_datetime(r["event_time"],utc=True,errors="coerce") for r in records]
     receipts=[pd.to_datetime(r["received_at"],utc=True,errors="coerce") for r in records]
     source=[s for s in source if pd.notna(s)];receipts=[s for s in receipts if pd.notna(s)]
-    age=max(0,(stamp-max(source)).total_seconds()) if source else None
+    future_source=bool(source and max(source)>stamp)
+    age=(stamp-max(source)).total_seconds() if source and not future_source else None
     connection=telemetry.get("state","unknown / collector telemetry unavailable")
     pid=telemetry.get("pid")
     if pid:
         from goxtrade.runtime.live_process import _pid_running
         if not _pid_running(pid):connection="disconnected / recorded collector no longer running"
     codes=[]
+    if future_source:codes.append("MALFORMED_RESPONSE")
     if not opened:codes.append("MARKET_CLOSED")
     if connection.startswith("disconnected"):codes.append("WEBSOCKET_DISCONNECTED")
     if telemetry.get("error_code") in RECOMMENDATIONS:codes.append(telemetry["error_code"])
@@ -112,7 +115,8 @@ def passive(now=None):
         subscriptions=telemetry.get("subscriptions",[]),reconnection_attempts=telemetry.get("reconnection_attempts"),
         last_events=records,last_event_timestamp=max(source).isoformat() if source else None,
         last_local_receipt=max(receipts).isoformat() if receipts else None,source_age_seconds=age,
-        telemetry_at=telemetry.get("updated_at"),last_stream_error=telemetry.get("last_error_code"),last_stream_error_at=telemetry.get("last_error_at"),
+        telemetry_at=telemetry.get("updated_at"),future_source_timestamp=future_source,
+        last_stream_error=telemetry.get("last_error_code"),last_stream_error_at=telemetry.get("last_error_at"),
         inspection_window="Last 2000 local events; absent instruments are unknown, not healthy",recommendations=[RECOMMENDATIONS[c] for c in codes])
 
 
@@ -173,11 +177,11 @@ def run(values,transport=None,sleep=time.sleep):
         if time.monotonic()-_last<2:raise ValueError("Wait two seconds before another explicit probe")
         _last=time.monotonic()
         if values["action"]=="authenticate":
+            _auth.clear()
             if not client.credentials_present():report=result("authentication","CONFIG_INVALID")
             else:
                 data,report=_request("/api/Auth/loginKey",dict(userName=os.getenv("TOPSTEP_USERNAME"),apiKey=os.getenv("TOPSTEP_API_KEY")),transport=transport,sleep=sleep)
-                _auth.clear()
-                if data and isinstance(data.get("token"),str) and data["token"]:
+                if data and isinstance(data.get("token"),str) and data["token"].strip():
                     _auth.update(token=data["token"],at=report["time"])
                 elif data:report=result("authentication","MALFORMED_RESPONSE")
         else:
@@ -217,5 +221,7 @@ def run(values,transport=None,sleep=time.sleep):
 
 
 def overview():
+    from goxtrade.diagnostics.operational_evidence import overview as operational
     return dict(configuration=configuration(),feed=passive(),results=list(_results),
-                authenticated=bool(_auth.get("token")),authenticated_at=_auth.get("at"),broker_execution=False)
+                authenticated=bool(_auth.get("token")),authenticated_at=_auth.get("at"),broker_execution=False,
+                operational=operational())
