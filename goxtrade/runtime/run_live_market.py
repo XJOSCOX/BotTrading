@@ -17,6 +17,7 @@ from goxtrade.execution.projectx_client import login, market_hub_url
 from goxtrade.execution.refresh_contracts import refresh_active_contracts
 from goxtrade.strategies.overnight_policy import MICRO_SYMBOLS
 from goxtrade.data.symbol_store import load_symbols
+from goxtrade.diagnostics import feed_status
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -58,7 +59,7 @@ def run_connection(subscriptions) -> None:
         last_event = time.monotonic()
         contract_id, payload = first_payload(args)
         if not isinstance(payload, dict):
-            logging.info("quote payload: %s", json.dumps(args, default=str))
+            logging.info("Unsupported quote payload; raw server content withheld")
             return
         symbol = contract_to_symbol.get(contract_id) or payload.get("symbol") or contract_id or "UNKNOWN"
         timestamp = payload.get("timestamp") or payload.get("lastUpdated")
@@ -82,17 +83,25 @@ def run_connection(subscriptions) -> None:
 
     def on_open():
         logging.info("market hub connected")
+        feed_status.update("connected",subscriptions=subscriptions)
         from goxtrade.data.feed_coverage import opened
         from goxtrade.data.live_store import utc_now
         for item in subscriptions:
             opened(item["symbol"], item["contract_id"], utc_now())
-            connection.invoke("SubscribeContractQuotes", [item["contract_id"]])
-            connection.invoke("SubscribeContractTrades", [item["contract_id"]])
+            try:
+                connection.invoke("SubscribeContractQuotes", [item["contract_id"]])
+                connection.invoke("SubscribeContractTrades", [item["contract_id"]])
+            except Exception:
+                feed_status.update("connected / subscription request failed",error="SUBSCRIPTION_FAILED")
+                raise
 
     connection.on("GatewayQuote", on_quote)
     connection.on("GatewayTrade", on_trade)
     connection.on_open(on_open)
-    connection.on_error(lambda error: logging.error("market hub error: %s", error))
+    def on_error(error):
+        logging.error("Market hub reported a stream error; raw server text withheld")
+        feed_status.update("connected / stream error",error="UNKNOWN_ERROR")
+    connection.on_error(on_error)
     connection.on_close(disconnected.set)
     connection.on("GatewayLogout", lambda *_: disconnected.set())
 
@@ -116,6 +125,7 @@ def run_connection(subscriptions) -> None:
         from goxtrade.data.live_store import utc_now
         for item in subscriptions:
             closed(item["symbol"], item["contract_id"], writer.gap_at or utc_now())
+        feed_status.update("disconnected")
 
 
 def trade_payloads(payload):
@@ -131,6 +141,7 @@ def main() -> None:
     Thread(target=run_practice, name="practice-executor", daemon=True).start()
     feed_symbols = list(dict.fromkeys([*load_symbols(), *SYMBOLS, *MICRO_SYMBOLS]))
     delay = 30
+    rejected_credentials = None
     while True:
         started = time.monotonic()
         try:
@@ -138,6 +149,13 @@ def main() -> None:
             from dotenv import load_dotenv
             from goxtrade.execution.projectx_client import ENV_PATH
             load_dotenv(ENV_PATH, override=True)
+            import hashlib,os
+            credential_identity=hashlib.sha256((os.getenv("TOPSTEP_USERNAME","")+"\0"+os.getenv("TOPSTEP_API_KEY","")).encode()).hexdigest()
+            if rejected_credentials==credential_identity:
+                # Continue exit/account management threads, but never hammer rejected credentials.
+                time.sleep(30)
+                continue
+            feed_status.update("connecting",reconnect=True)
             refresh_active_contracts(feed_symbols)
             subscriptions = symbols_with_contracts(feed_symbols)
             if not subscriptions:
@@ -145,6 +163,10 @@ def main() -> None:
             run_connection(subscriptions)
         except Exception as error:
             logging.warning("Market connection failed (%s)", type(error).__name__)
+            from goxtrade.execution.projectx_client import ProjectXAuthError
+            if isinstance(error,ProjectXAuthError) and getattr(error,"code",None) in ("AUTH_FAILED","PERMISSION_DENIED"):
+                rejected_credentials=credential_identity
+                feed_status.update("disconnected",error=error.code)
         if time.monotonic() - started > 300:
             delay = 30
         logging.info("Reconnecting with fresh authentication in %s seconds", delay)

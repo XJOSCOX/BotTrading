@@ -12,7 +12,9 @@ load_dotenv(ENV_PATH)
 
 
 class ProjectXAuthError(RuntimeError):
-    pass
+    def __init__(self,message,code=None):
+        super().__init__(message)
+        self.code=code
 
 
 def api_url() -> str:
@@ -35,10 +37,12 @@ def login() -> str:
         headers={"accept": "text/plain", "Content-Type": "application/json"},
         timeout=15,
     )
+    if response.status_code in (401,403):
+        raise ProjectXAuthError("ProjectX authentication rejected; verify API credentials and permissions",code="AUTH_FAILED")
     response.raise_for_status()
     data = response.json()
     if not data.get("success") or not data.get("token"):
-        raise ProjectXAuthError(f"ProjectX login failed: {data}")
+        raise ProjectXAuthError("ProjectX authentication rejected; verify credentials, agreements and subscription",code="AUTH_FAILED" if data.get("errorCode")==3 else "PERMISSION_DENIED")
     return data["token"]
 
 
@@ -61,7 +65,7 @@ def post(path: str, payload: dict, token: str | None = None) -> dict:
 def search_contracts(search_text: str, live: bool = False, token: str | None = None) -> list[dict]:
     data = post("/api/Contract/search", {"searchText": search_text, "live": live}, token=token)
     if not data.get("success"):
-        raise ProjectXAuthError(f"Contract search failed: {data}")
+        raise ProjectXAuthError("ProjectX contract search refused; verify contract and subscription")
     return data.get("contracts", [])
 
 

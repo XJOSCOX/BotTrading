@@ -8,6 +8,12 @@ from goxtrade.runtime import run_live_market
 
 
 class FeedStartupTests(unittest.TestCase):
+    def test_confirmed_auth_rejection_does_not_loop_until_credentials_change(self):
+        from goxtrade.execution.projectx_client import ProjectXAuthError
+        with tempfile.TemporaryDirectory() as folder,patch.object(live_store,"DB_PATH",Path(folder)/"test.db"),patch.object(run_live_market,"Thread"),patch.object(run_live_market,"load_symbols",return_value=[]),patch("dotenv.load_dotenv"),patch.object(run_live_market,"refresh_active_contracts",side_effect=ProjectXAuthError("Rejected",code="AUTH_FAILED")) as refresh,patch.object(run_live_market.time,"sleep",side_effect=[None,None,StopIteration]):
+            with self.assertRaises(StopIteration):run_live_market.main()
+        self.assertEqual(refresh.call_count,1)
+
     def test_failed_initial_contract_refresh_is_retried(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store, "DB_PATH", Path(folder) / "test.db"), patch.object(
             run_live_market, "Thread"
