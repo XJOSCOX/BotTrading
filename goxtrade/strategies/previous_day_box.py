@@ -153,6 +153,8 @@ def evaluate_previous_day_box(minutes, price, now, config=None, *, symbol="NQ=F"
         bars = signal_candles(source,now,15,strict=True)
         if bars.empty: raise ValueError("Need fully completed 15-minute confirmation candles")
         last = bars.iloc[-1]
+        if last["time"] < pd.Timestamp(box["closed_at"]):
+            raise ValueError("Awaiting a completed confirmation candle after the reference session closed")
         confirmed_at = last["time"]+pd.Timedelta(minutes=15)
         if not 0 <= (now-confirmed_at).total_seconds() < config.entry_window_seconds:
             raise ValueError("Latest completed confirmation candle is stale or expired")

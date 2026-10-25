@@ -82,6 +82,16 @@ Legacy Market/Bot/Live links redirect to Charts/Strategies/Execution. See
 
 See [BOT_OPERATIONS.md](docs/BOT_OPERATIONS.md) for strategy rules, safeguards, and limitations. New setups support 5/10/15-minute stop management. Automated trading can lose money; test in Practice before enabling a Leader account.
 
+## Previous Day Box Reversal
+
+The additive `previous_day_box` strategy uses completed previous-session high/low,
+configurable discount/premium zones and completed 15-minute wick, sweep or causal
+structure confirmation. Monitoring defaults on; forward paper and broker Practice
+default off. Leader execution is prohibited. See
+[PREVIOUS_DAY_BOX.md](docs/PREVIOUS_DAY_BOX.md) for session/calendar requirements,
+chart/settings/research integration, safeguards, validation and deployment limits.
+Strategy watch always lists registered strategies, even without worker results.
+
 ## Phase 2 Validation
 
 See [PHASE2_VALIDATION.md](docs/PHASE2_VALIDATION.md) for confirmed defects, regression

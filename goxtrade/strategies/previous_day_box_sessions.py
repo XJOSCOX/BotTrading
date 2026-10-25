@@ -53,6 +53,7 @@ def previous_box(minutes, now, config, contract_id, schedule=None):
     frame = minutes.copy()
     frame["time"] = pd.to_datetime(frame["time"],utc=True,errors="raise")
     frame = frame.loc[frame["time"].isin(expected)]
+    frame = frame.sort_values("time")
     if (frame["time"].duplicated().any() or len(frame) != len(expected)
             or not frame["time"].sort_values().reset_index(drop=True).equals(pd.Series(expected))):
         raise ValueError("Previous trading session minute history is incomplete; no older box substituted")

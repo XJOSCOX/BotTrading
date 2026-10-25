@@ -2,13 +2,13 @@
 
 ## Background app
 
-Double-click `start_app.cmd` to start, or use `GoXTrade.cmd` to choose Start or Stop. Start restores any missing Streamlit,
-feed/monitor and Leader worker processes independently of Chrome. It does not
-enable trading. The full-stop action pauses new entries, then requires all bot
-jobs resolved and both Topstep accounts verified flat. If broker login fails or
-open exposure is present, exit monitoring remains on. There is no automatic
-Windows restart task. The dashboard is at `http://localhost:8502`. Launcher
-events are saved in `data/logs/launcher.log`.
+Double-click either CMD launcher for the persistent native interface menu at
+`http://127.0.0.1:8504`. Interface start/restart does not start trading workers,
+alter Run/Pause or depend on Chrome remaining open. Connection provides explicit
+worker controls; guarded worker shutdown requires resolved jobs and verified flat
+broker accounts. If verification fails, exit monitoring remains on. There is no
+automatic Windows startup. See [NATIVE_APP.md](NATIVE_APP.md). Streamlit on 8502
+is retained as an explicitly started fallback, not the default interface.
 
 The feed now retries failed contract discovery as well as failed hub connections.
 It reloads `.env` on each attempt, so a repaired API key can take effect on the
@@ -20,7 +20,7 @@ next retry. An invalid Topstep key still prevents fresh quotes and entries.
 - Leader defaults: 3 MNQ / 3 MES, MYM disabled. Enable MYM trading and Save leader settings explicitly opts into MYM with a selected quantity of 1-4. Disabling blocks new MYM entries without stopping exit management. Starting its monitor leaves entries paused; trading requires the explicit Start control and account/copier confirmations.
 - Topstep copier configuration must be verified by the user. The app cannot verify copying or guarantee follower exits. Loss locks apply separately to each account, not the combined copier group.
 - Orders, fills, controls, broker health and loss-lock state are account-isolated. Enabled execution or unresolved jobs on the other account block activation. Account-view selectors never arm execution.
-- Monitor watches all three indices and six strategies. Account controls govern new entries, not management of existing positions. VWAP EMA Cross has an additional explicit Practice permission and is prohibited for Leader execution.
+- Updated monitoring code watches all three indices and seven strategies. Account controls govern new entries, not management of existing positions. VWAP EMA Cross and Previous Day Box have additional explicit Practice permission and are prohibited for Leader execution.
 - MYM additionally requires its existing explicit activation flag. Default execution remains MNQ/MES.
 - The persistent $500 account-loss lock and maximum four contracts per symbol remain in force.
 - Up to three bot-owned micro positions, one per MNQ/MES/MYM. When flat, the first entry uses the selected size (1-4); with exposure open, new entries on other symbols are capped at one contract each. No additions on the same symbol, no automatic size increases, and no automatic reversal. The opposite-direction exposure guard and account-wide cooldown after any confirmed close remain in force.
@@ -184,3 +184,12 @@ Restart monitoring with entries paused and verify all strategy/symbol timestamps
 and feed freshness before manually resuming. Existing database connections no
 longer run core schema creation, and each evaluation refreshes its latest tick
 after loading candle history. Stale-data entry guards remain in place.
+
+## Previous Day Box Addition
+
+See [PREVIOUS_DAY_BOX.md](PREVIOUS_DAY_BOX.md) for the new completed-session/15m
+reversal strategy. It cannot activate Leader execution. Monitoring defaults on;
+paper and Practice require explicit opt-in and never bypass existing safeguards.
+Missing prior-session history returns WAIT rather than using an older or mixed
+contract box. New monitoring modules require a guarded worker restart; interface
+restart alone never interrupts trading workers or authorizes entries.

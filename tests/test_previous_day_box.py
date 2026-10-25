@@ -50,6 +50,11 @@ class PreviousDayBoxTests(unittest.TestCase):
         self.assertEqual(signal["signal"],"WAIT")
         self.assertIn("min_box",signal["reason"])
 
+    def test_reference_session_cannot_confirm_its_own_reversal(self):
+        result,_=evaluate_previous_day_box(history(),118,NOW,dict(session="custom",custom_open="08:30",custom_close="10:00",max_zone_extension_percent=10),contract_id=CONTRACT,quote_time=NOW)
+        self.assertEqual(result["signal"],"WAIT")
+        self.assertIn("after the reference session",result["reason"])
+
     def test_structure_break_uses_only_already_confirmed_pivots(self):
         frame=history()
         shapes=[(120,122,110,121),(122,124,121,123),(119,121,118,120),(121,123,120,122),(125,128,124,126)]

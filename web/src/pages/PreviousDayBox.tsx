@@ -267,6 +267,14 @@ export function PreviousDayBoxPanel() {
         <span>Confirmation: {ct(signal?.confirmed_at)}</span>
         <span>Expires: {ct(signal?.expires_at)}</span>
         <span>Trade: {ct(data?.quote_time)}</span>
+        <span>
+          Signal window:{" "}
+          {data?.next_eligible_entry
+            ? ct(data.next_eligible_entry)
+            : "Awaiting confirmation"}
+        </span>
+        <span>Last signal opened: {ct(data?.last_entry)}</span>
+        <span>Last signal closed: {ct(data?.last_exit)}</span>
       </div>
       <Suspense fallback={<Notice>Loading chart</Notice>}>
         <MarketChart
