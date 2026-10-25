@@ -1,5 +1,14 @@
 # GoXTrade
 
+## Operational Acceptance
+
+Phase 8 is delivered on `feature/operational-acceptance`, without automatic merge
+or trading activation. Diagnostics now shows passive strategy, research and
+account-safety evidence with explicit unknown/stale states. See
+[OPERATIONAL_ACCEPTANCE_REPORT.md](docs/OPERATIONAL_ACCEPTANCE_REPORT.md) for
+the verified software tests, confirmed fixes and actual provider/data blockers.
+Offline success does not establish real historical, Practice or Leader readiness.
+
 ## Pre-Deployment Hardening
 
 Phase 7 is delivered on `feature/system-hardening`, based on Phase 6, without an
