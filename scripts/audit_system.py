@@ -9,7 +9,7 @@ import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
-MANUAL = {"goxtrade/execution/practice_executor.py", "goxtrade/strategies/adaptive_exit.py", "goxtrade/strategies/stop_policy.py",
+PRIOR_REVIEW = {"goxtrade/execution/practice_executor.py", "goxtrade/strategies/adaptive_exit.py", "goxtrade/strategies/stop_policy.py",
           "goxtrade/bot/signal_lifecycle.py", "goxtrade/execution/executed_results.py", "goxtrade/research/backtest.py",
           "goxtrade/research/forward_paper.py", "goxtrade/research/portfolio_backtest.py", "goxtrade/research/portfolio_forward_paper.py",
           "goxtrade/execution/strategy_manager.py", "goxtrade/execution/portfolio_risk.py", "goxtrade/execution/signal_reservations.py",
@@ -17,6 +17,18 @@ MANUAL = {"goxtrade/execution/practice_executor.py", "goxtrade/strategies/adapti
           "goxtrade/execution/profit_policy.py", "goxtrade/execution/trade_manager.py", "goxtrade/execution/partial_exits.py",
           "goxtrade/execution/trade_analytics.py", "goxtrade/execution/position_protection.py", "goxtrade/execution/profit_service.py",
           "goxtrade/research/managed_positions.py", "goxtrade/research/exit_policy_comparison.py"}
+PHASE7_REVIEW = {"goxtrade/api/app.py", "goxtrade/api/state.py", "goxtrade/config/execution_identity.py",
+                "goxtrade/execution/practice_executor.py", "goxtrade/execution/projectx_client.py",
+                "goxtrade/execution/strategy_manager.py", "goxtrade/execution/portfolio_risk.py",
+                "goxtrade/execution/signal_reservations.py", "goxtrade/execution/position_protection.py",
+                "goxtrade/execution/leader_execution.py", "goxtrade/execution/leader_worker.py",
+                "goxtrade/execution/trade_manager.py", "goxtrade/execution/profit_policy.py",
+                "goxtrade/execution/trade_analytics.py", "goxtrade/research/portfolio_backtest.py",
+                "goxtrade/research/portfolio_forward_paper.py", "goxtrade/research/managed_positions.py",
+                "goxtrade/replay/replay_session.py", "goxtrade/replay/replay_store.py",
+                "goxtrade/replay/replay_engine.py", "goxtrade/diagnostics/projectx_diagnostics.py",
+                "goxtrade/runtime/run_live_market.py", "goxtrade/runtime/native_app.py",
+                "goxtrade/runtime/manager_paper_worker.py", "web/src/store.ts"}
 
 
 def module(name):
@@ -74,11 +86,11 @@ def inventory():
     for row in rows:
         name = row["name"]
         tests = [path.removeprefix("tests/") for path, imports in references.items() if module(name) in imports]
-        evidence = "Manual critical-path review + static parsing" if name in MANUAL else "Static inventory; no additional defect asserted"
+        evidence = ("Phase 7 targeted semantic review + static parsing" if name in PHASE7_REVIEW else
+                    "Prior-milestone critical review; Phase 7 static re-inventory" if name in PRIOR_REVIEW else
+                    "Static inventory; no additional defect asserted")
         if name.endswith("practice_smoke_test.py"):
             evidence = "DANGEROUS IF RUN: explicit Practice orders; not invoked"
-        if name.endswith("trade_candidate.py"):
-            evidence += "; F1 frozen exit metadata repaired"
         if name.startswith("tests/"):
             evidence = f"{row['tests']} test methods declared; browser scripts may have zero methods"
         integration = ", ".join(dict.fromkeys(value for value in row["imports"] if value.count(".") > 1))[:100]

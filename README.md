@@ -1,5 +1,15 @@
 # GoXTrade
 
+## Pre-Deployment Hardening
+
+Phase 7 is delivered on `feature/system-hardening`, based on Phase 6, without an
+automatic merge or account activation. It adds confirmed error-handling, restored
+risk-state, broker-response/protection and replay/UI reliability repairs, plus
+isolated lifecycle/failure tests. See
+[PRE_DEPLOYMENT_AUDIT.md](docs/PRE_DEPLOYMENT_AUDIT.md) for exact evidence,
+measurements and remaining gates. Passing offline tests is not live broker
+certification. Practice and Leader execution still require independent validation.
+
 ## Offline Replay and Diagnostics
 
 Phase 6 is delivered on `feature/offline-replay-diagnostics`, without automatically
