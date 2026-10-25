@@ -18,20 +18,26 @@ class StrategySpec:
     required_data: tuple = ("completed_minutes", "fresh_trade", "broker_reconciliation")
     entry_policy: str = "legacy-multiframe"
     runtime_adapter: str | None = None
+    category: str = "reversal"
+    correlation_group: str = "US_EQUITY_INDICES"
+    default_priority: int = 100
+    session_eligibility: tuple = ("exchange_open",)
+    confirmation_required: str = "strategy_revalidated"
+    expiration_seconds: int = 90
 
 
 SPECS = (
     StrategySpec("crt", "CRT", indicators=("range",)),
     StrategySpec("reversal", "Reversal", indicators=("rsi14",)),
-    StrategySpec("orb", "ORB", indicators=("opening_range",)),
-    StrategySpec("vwap_reclaim", "VWAP Reclaim", indicators=("hlc3_vwap", "ema20", "ema50")),
-    StrategySpec("ema_pullback", "EMA Pullback", indicators=("ema20", "ema50", "rsi14")),
+    StrategySpec("orb", "ORB", indicators=("opening_range",), category="breakout"),
+    StrategySpec("vwap_reclaim", "VWAP Reclaim", indicators=("hlc3_vwap", "ema20", "ema50"), category="trend_continuation"),
+    StrategySpec("ema_pullback", "EMA Pullback", indicators=("ema20", "ema50", "rsi14"), category="trend_continuation"),
     StrategySpec("vwap_ema_cross", "VWAP EMA Cross", signal_minutes=3,
                  indicators=("ohlc4_session_vwap", "ema9_close"), lookback_bars=45,
                  modes=("CONFIRMED", "REALTIME", "ANTICIPATORY"), cooldown_minutes=0,
                  execution_profiles=("practice",), risk_policy="strategy-snapshot-v1",
                  required_data=("complete_session_trade_ohlcv", "fresh_trade", "broker_reconciliation"),
-                 entry_policy="indicator-event-v1", runtime_adapter="goxtrade.strategies.vwap_ema_runtime"),
+                 entry_policy="indicator-event-v1", runtime_adapter="goxtrade.strategies.vwap_ema_runtime", category="momentum"),
     StrategySpec("previous_day_box", "Previous Day Box Reversal", signal_minutes=15,
                  indicators=("previous_session_box", "rejection", "sweep", "confirmed_structure"),
                  lookback_bars=1440, execution_profiles=("practice",), risk_policy="previous-box-snapshot-v1",
