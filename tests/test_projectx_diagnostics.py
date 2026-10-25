@@ -123,6 +123,9 @@ class DiagnosticsTests(unittest.TestCase):
             with self.assertRaises(projectx_client.ProjectXAuthError) as caught:projectx_client.login()
             self.assertEqual(caught.exception.code,"AUTH_FAILED")
             self.assertNotIn("SECRET",str(caught.exception))
+        with patch.object(projectx_client.requests,"post",return_value=response(success=False,errorCode=999,token="SECRET-TOKEN")):
+            with self.assertRaises(projectx_client.ProjectXAuthError) as caught:projectx_client.login()
+            self.assertEqual(caught.exception.code,"UNKNOWN_ERROR")
 
     def test_windows_process_inspection_never_sends_a_signal(self):
         feed_status.update("connected")

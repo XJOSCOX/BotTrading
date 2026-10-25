@@ -38,11 +38,12 @@ def login() -> str:
         timeout=15,
     )
     if response.status_code in (401,403):
-        raise ProjectXAuthError("ProjectX authentication rejected; verify API credentials and permissions",code="AUTH_FAILED")
+        raise ProjectXAuthError("ProjectX authentication rejected; verify API credentials and permissions",code="AUTH_FAILED" if response.status_code==401 else "PERMISSION_DENIED")
     response.raise_for_status()
     data = response.json()
     if not data.get("success") or not data.get("token"):
-        raise ProjectXAuthError("ProjectX authentication rejected; verify credentials, agreements and subscription",code="AUTH_FAILED" if data.get("errorCode")==3 else "PERMISSION_DENIED")
+        code="AUTH_FAILED" if data.get("errorCode")==3 else "PERMISSION_DENIED" if data.get("errorCode") in (7,9,10) else "UNKNOWN_ERROR"
+        raise ProjectXAuthError("ProjectX authentication unavailable; verify credentials, agreements and subscription",code=code)
     return data["token"]
 
 
