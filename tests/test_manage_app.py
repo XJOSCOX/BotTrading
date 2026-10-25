@@ -7,6 +7,16 @@ from goxtrade.runtime import manage_app
 
 
 class ManualControlTests(unittest.TestCase):
+    def test_worker_maintenance_stop_leaves_web_ui_open(self):
+        with patch.object(manage_app.practice_executor, "pause"), patch.object(manage_app.leader_execution, "command"), \
+                patch.object(manage_app.time, "sleep"), patch.object(manage_app.practice_executor, "snapshot", return_value=({}, {}, [])), \
+                patch.object(manage_app.leader_execution, "snapshot", return_value=({}, {}, [])), \
+                patch.object(manage_app, "broker_flat", return_value=True), patch.object(manage_app.live_process, "stop") as stop, \
+                patch.object(manage_app, "stop_owned_process") as owned:
+            manage_app.stop_workers()
+            stop.assert_called_once()
+            owned.assert_called_once_with(manage_app.LEADER_PID, "leader_worker.py")
+
     def test_unresolved_job_keeps_workers_running(self):
         with patch.object(manage_app.practice_executor, "pause"), patch.object(
             manage_app.leader_execution, "command"

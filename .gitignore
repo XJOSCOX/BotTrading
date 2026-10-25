@@ -13,3 +13,5 @@ __pycache__/
 *.db
 *.sqlite*
 *.pid
+/web/node_modules/
+/web/dist/

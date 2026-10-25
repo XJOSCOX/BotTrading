@@ -100,7 +100,7 @@ def render_monitor_history(account_profile="practice"):
 
 def render_bot() -> None:
     bot_view.theme()
-    shell.page_header("WORKSPACE / SIGNALS", "Bot", "Strategy watch and execution decisions", "ACCOUNT EXECUTION")
+    shell.page_header("Trading", "Strategies", "Live setups, entry evidence and execution decisions")
     from goxtrade.ui.bot import bot_workspace
     from goxtrade.execution import leader_execution; from goxtrade.execution import practice_executor
     if "bot_account_view" not in st.session_state:
@@ -110,18 +110,7 @@ def render_bot() -> None:
     with st.container(key="bot_header_controls"):
         account_column, _ = st.columns([1, 3])
         account_profile = account_column.selectbox("Account view",["practice","leader"],format_func=str.title,key="bot_account_view",help="Changes the displayed account only; does not start or switch execution.")
-    with st.expander("Strategy settings / shared monitor"):
-        from goxtrade.strategies import strategy_settings
-        with st.form("shared_strategy_settings"):
-            choices = [5,15,30]
-            orb_minutes = st.selectbox("Opening range (minutes)", choices,index=choices.index(strategy_settings.read_orb_minutes()))
-            stop_choices = [5,10,15]
-            stop_minutes = st.selectbox("Stop & trailing candles (minutes)",stop_choices,index=stop_choices.index(strategy_settings.read_stop_minutes()))
-            if st.form_submit_button("Save strategy settings",icon=":material/save:"):
-                strategy_settings.save_orb_minutes(orb_minutes)
-                strategy_settings.save_stop_minutes(stop_minutes)
-                st.success("Saved for new setups. Existing signals retain their original range and exit timeframe.")
-    monitor, operations, research, vwap, inbox = st.tabs(["Monitor", "Controls & review", "Replay lab", "VWAP EMA Cross", "Notifications"])
+    monitor, operations, research, vwap, inbox = st.tabs(["Monitor", "Trade review", "Replay lab", "VWAP EMA Cross", "Notifications"])
     with vwap:
         from goxtrade.ui.bot.vwap_ema_panel import render as render_vwap
         render_vwap()
@@ -132,14 +121,10 @@ def render_bot() -> None:
         with st.container(key="bot_operations"):
             bot_workspace.theme()
             if account_profile == "leader":
-                from goxtrade.ui.execution.leader_page import render
-                render()
+                from goxtrade.ui.execution.leader_page import activity
+                activity()
             else:
-                a,b = st.columns([1,1.6],gap="large")
-                with a:
-                    bot_workspace.controls()
-                with b:
-                    bot_workspace.operations_status()
+                bot_workspace.operations_status()
                 bot_workspace.timeline()
     with research:
         with st.container(key="bot_research"):

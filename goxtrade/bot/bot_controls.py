@@ -3,7 +3,7 @@ import json
 from contextlib import closing
 from goxtrade.data.live_store import connect
 from goxtrade.bot.bot_audit import emit
-from goxtrade.config.execution_target import PROFILE, TARGETS
+from goxtrade.config.execution_identity import PROFILE, TARGETS
 from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec, execution_block
 
 DEFAULTS = dict(symbols=["MNQ", "MES", "MYM"], strategies=["CRT", "Reversal"], cooldown_minutes=5)

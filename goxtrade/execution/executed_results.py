@@ -12,12 +12,13 @@ def results(jobs, fills):
     for job in jobs:
         if job["alert_id"] < 0 or job["state"] != "Closed" or not job.get("closed_confirmed_at"):
             continue
-        entries = [f for f in valid if f.get("orderId") == job.get("order_id")]
+        account_fills = [f for f in valid if not job.get("account_id") or f.get("accountId", job["account_id"]) == job["account_id"]]
+        entries = [f for f in account_fills if f.get("orderId") == job.get("order_id")]
         if not entries or sum(f["size"] for f in entries) != job["quantity"]:
             continue
         start = min(ts(f["creationTimestamp"]) for f in entries)
         end = ts(job["closed_confirmed_at"])
-        window = [f for f in valid if f["contractId"] == job["contract_id"] and start <= ts(f["creationTimestamp"]) <= end]
+        window = [f for f in account_fills if f["contractId"] == job["contract_id"] and start <= ts(f["creationTimestamp"]) <= end]
         exits = [f for f in window if f.get("side") == 1-job["side"]]
         if (any(f.get("side") == job["side"] and f.get("orderId") != job["order_id"] for f in window)
                 or sum(f["size"] for f in exits) != job["quantity"]

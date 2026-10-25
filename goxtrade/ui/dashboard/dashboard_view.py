@@ -32,9 +32,11 @@ def usd(value):
 @st.fragment(run_every="5s")
 def render_statistics():
     from goxtrade.ui.dashboard.dashboard_design import render
-    period_col, account_col = st.columns([3,1])
+    period_col, account_col, scope_col = st.columns([2,1,1])
     period = period_col.segmented_control("Period",["Today","7 days","30 days","All saved"],default="All saved",key="dashboard_period_v3",label_visibility="collapsed") or "All saved"
     account = account_col.selectbox("Account",["practice","leader"],format_func=str.title,key="dashboard_account",label_visibility="collapsed")
+    scope = scope_col.selectbox("History scope", ["Current account", "All saved accounts"], key="dashboard_scope", label_visibility="collapsed")
+    from goxtrade.config.execution_identity import TARGETS
     if account == "leader":
         from goxtrade.execution import leader_execution
         settings,runtime,jobs = leader_execution.snapshot()
@@ -43,7 +45,9 @@ def render_statistics():
     else:
         settings,runtime,jobs = practice_executor.snapshot()
         feed,fills = practice_history.snapshot()
-        gate_id = 1
+        gate_id = TARGETS["practice"]["gate_id"]
+    if scope == "Current account":
+        jobs = [job for job in jobs if job.get("account_id", TARGETS[account]["id"]) == TARGETS[account]["id"]]
     from goxtrade.bot import bot_health
     feed = bot_health.snapshot(feed,account_id=gate_id)
     matched = results(jobs,fills)

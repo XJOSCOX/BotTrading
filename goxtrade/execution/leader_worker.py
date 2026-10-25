@@ -1,7 +1,7 @@
 """Isolated leader worker and explicitly invoked UI commands. Never targets followers."""
 import json
 import sys
-from goxtrade.config.execution_target import PROFILE, TARGET
+from goxtrade.config.execution_identity import PROFILE, TARGET
 from goxtrade.paths import DATA_DIR
 
 

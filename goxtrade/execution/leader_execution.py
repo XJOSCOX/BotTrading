@@ -5,7 +5,7 @@ import os
 import subprocess
 import sys
 from goxtrade.data.live_store import connect
-from goxtrade.config.execution_target import TARGETS
+from goxtrade.config.execution_identity import TARGETS
 from goxtrade.paths import ROOT
 from goxtrade.runtime.environment import worker_environment
 

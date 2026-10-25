@@ -1,0 +1,416 @@
+"""Same-origin loopback API and production React assets. No automatic broker actions."""
+import asyncio
+from contextlib import asynccontextmanager
+import hashlib
+import json
+import os
+from pathlib import Path
+import secrets
+import time
+from typing import Annotated, Literal
+
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
+
+from goxtrade.api import state
+from goxtrade.config import execution_identity as identity
+from goxtrade.paths import ROOT
+
+PORT = int(os.environ.get("GOX_NATIVE_PORT", "8504"))
+ORIGINS = {f"http://127.0.0.1:{PORT}", f"http://localhost:{PORT}"}
+HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
+DIST = ROOT / "web" / "dist"
+Profile = Literal["practice", "leader"]
+Count = Annotated[StrictInt, Field(ge=1, le=4)]
+
+
+class Body(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class Policy(Body):
+    strategies: list[str]
+    quantities: dict[str, Count]
+    cooldown: Annotated[StrictInt, Field(ge=1, le=60)]
+    enable_mym: StrictBool
+
+
+class Intervals(Body):
+    stop_minutes: Literal[5, 10, 15]
+    orb_minutes: Literal[5, 15, 30]
+
+
+class Credentials(Body):
+    username: Annotated[str, Field(min_length=1, max_length=200)]
+    api_key: SecretStr
+
+
+class Replacement(Body):
+    account_id: Annotated[StrictInt, Field(gt=0)]
+    name: Annotated[str, Field(min_length=1, max_length=160)]
+    confirmed: StrictBool
+
+
+class Authorization(Body):
+    name: str
+    safeguards: StrictBool
+    acknowledge_loss: StrictBool = False
+
+
+class ClearAlerts(Body):
+    ids: list[StrictInt] = Field(max_length=200)
+
+
+class Instrument(Body):
+    symbol: Annotated[str, Field(min_length=1, max_length=32)]
+    contract_id: str = ""
+
+
+class Research(Body):
+    symbol: Literal["MNQ", "MES", "MYM", "NQ", "ES", "YM"]
+    contract_id: str
+    strategy: str = "VWAP EMA Cross"
+    csv: str = Field(min_length=1, max_length=1500000)
+    commission: Annotated[float, Field(ge=0)]
+    zero_cost_sensitivity: StrictBool = False
+    slippage: Annotated[StrictInt, Field(ge=0, le=100)] = 1
+    quantity: Count = 1
+
+
+def session(request: Request):
+    key = request.cookies.get("gox_session", "")
+    stored = request.app.state.sessions.get(key)
+    if not stored or stored[1] < time.monotonic():
+        raise HTTPException(401, "Local session expired. Reload the workspace.")
+    return stored[0]
+
+
+def mutation(request: Request, csrf=Depends(session)):
+    if request.headers.get("origin") not in ORIGINS or not secrets.compare_digest(request.headers.get("x-gox-csrf", ""), csrf):
+        raise HTTPException(403, "Same-origin confirmation required")
+
+
+@asynccontextmanager
+async def lifespan(app):
+    # No collector, broker login, order submission or arming in the web lifespan.
+    yield
+
+
+def create_app():
+    app = FastAPI(title="GoXTrade local API", docs_url=None, redoc_url=None, openapi_url=None, lifespan=lifespan)
+    app.state.sessions = {}
+    app.state.sockets = 0
+    app.state.action_lock = asyncio.Lock()
+
+    @app.middleware("http")
+    async def boundary(request, call_next):
+        if request.headers.get("host") not in HOSTS:
+            return JSONResponse({"detail": "Loopback host required"}, status_code=403)
+        if request.headers.get("sec-fetch-site") == "cross-site":
+            return JSONResponse({"detail": "Cross-site access denied"}, status_code=403)
+        if int(request.headers.get("content-length", "0") or 0) > 1800000:
+            return JSONResponse({"detail": "Request too large"}, status_code=413)
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"
+        if request.url.path.startswith("/api/"):
+            response.headers["Cache-Control"] = "no-store"
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request, error):
+        # Pydantic's raw error inputs can contain API keys: never echo them.
+        return JSONResponse({"detail": "Invalid request values", "fields": [".".join(map(str, e["loc"])) for e in error.errors()]}, status_code=422)
+
+    @app.exception_handler(ValueError)
+    async def value_error(request, error):
+        return JSONResponse({"detail": str(error)[:400]}, status_code=400)
+
+    @app.exception_handler(Exception)
+    async def unexpected(request, error):
+        return JSONResponse({"detail": "Operation failed. Verify broker connectivity and current state before retrying."}, status_code=503)
+
+    @app.get("/api/health")
+    def health():
+        return dict(app="goxtrade-native", workspace=hashlib.sha256(str(ROOT).encode()).hexdigest()[:16])
+
+    @app.get("/api/session")
+    def establish(request: Request):
+        cookie = request.cookies.get("gox_session", "")
+        existing = app.state.sessions.get(cookie)
+        if not existing or existing[1] < time.monotonic():
+            cookie = secrets.token_urlsafe(32)
+            existing = (secrets.token_urlsafe(32), time.monotonic()+28800)
+            expired = [key for key, row in app.state.sessions.items() if row[1] < time.monotonic()]
+            for key in expired:
+                app.state.sessions.pop(key, None)
+            if len(app.state.sessions) >= 64:
+                raise HTTPException(429, "Too many local browser sessions")
+            app.state.sessions[cookie] = existing
+        response = JSONResponse(dict(csrf=existing[0]))
+        response.set_cookie("gox_session", cookie, httponly=True, samesite="strict", max_age=28800)
+        return response
+
+    @app.get("/api/config", dependencies=[Depends(session)])
+    def config():
+        return state.configuration()
+
+    @app.get("/api/snapshot", dependencies=[Depends(session)])
+    def snapshot():
+        return dict(**state.CACHE.get(), **state.ticks())
+
+    @app.websocket("/api/stream")
+    async def stream(socket: WebSocket):
+        key = socket.cookies.get("gox_session", "")
+        stored = app.state.sessions.get(key)
+        if (socket.headers.get("host") not in HOSTS or socket.headers.get("origin") not in ORIGINS
+                or not stored or stored[1] < time.monotonic() or app.state.sockets >= 8):
+            await socket.close(code=1008)
+            return
+        app.state.sockets += 1
+        await socket.accept()
+        previous = None
+        try:
+            while stored[1] >= time.monotonic():
+                current = await asyncio.to_thread(state.CACHE.get)
+                if current is not previous:
+                    await asyncio.wait_for(socket.send_json(dict(type="snapshot", data=current)), timeout=5)
+                    previous = current
+                prices = await asyncio.to_thread(state.ticks)
+                await asyncio.wait_for(socket.send_json(dict(type="ticks", data=prices)), timeout=5)
+                await asyncio.sleep(1)
+        except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
+            pass
+        finally:
+            app.state.sockets -= 1
+            try:
+                await socket.close()
+            except RuntimeError:
+                pass
+
+    @app.get("/api/chart", dependencies=[Depends(session)])
+    def chart(symbol: Literal["NQ=F", "ES=F", "YM=F", "MNQ=F", "MES=F", "MYM=F"], minutes: Annotated[int, Query(ge=1, le=60)] = 1, hours: Annotated[int, Query(ge=24, le=48)] = 48):
+        if minutes not in (1, 3, 5, 15, 30, 60) or hours not in (24, 48):
+            raise ValueError("Unsupported chart candle interval or range")
+        return chart_data(symbol, minutes, hours)
+
+    @app.post("/api/policy/{profile}", dependencies=[Depends(mutation)])
+    def policy(profile: Profile, body: Policy):
+        identity.assert_current(profile)
+        from goxtrade.bot import bot_controls
+        from goxtrade.execution import practice_executor, leader_execution
+        from goxtrade.strategies.strategy_catalog import strategy_spec
+        if set(body.quantities) != {"MNQ", "MES", "MYM"} or any(profile not in strategy_spec(name).execution_profiles for name in body.strategies):
+            raise ValueError("Unsupported sizing or strategy for this profile")
+        if profile == "leader":
+            leader_execution.command("configure", quantities=body.quantities, strategies=body.strategies, cooldown=body.cooldown, enable_mym=body.enable_mym)
+        else:
+            bot_controls.save(["MNQ", "MES"]+(["MYM"] if body.enable_mym else []), body.strategies, body.cooldown, profile="practice")
+            practice_executor.configure(body.quantities, body.enable_mym)
+        state.CACHE.invalidate()
+        return dict(message="Policy saved. Run/Pause state unchanged.")
+
+    @app.post("/api/intervals", dependencies=[Depends(mutation)])
+    def intervals(body: Intervals):
+        from goxtrade.strategies import strategy_settings
+        strategy_settings.save_stop_minutes(body.stop_minutes)
+        strategy_settings.save_orb_minutes(body.orb_minutes)
+        return dict(message="Intervals saved for new setups. Open positions are unchanged.")
+
+    @app.post("/api/vwap", dependencies=[Depends(mutation)])
+    def vwap(values: dict):
+        from goxtrade.strategies.strategy_settings import save_vwap_ema_config
+        from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
+        config = VwapEmaConfig.from_dict(values)
+        if config.paper_enabled and not config.paper_commission_per_side and not config.paper_zero_cost_sensitivity:
+            raise ValueError("Paper fees must be explicit or an acknowledged zero-cost sensitivity scenario")
+        save_vwap_ema_config(config)
+        return dict(message="VWAP settings saved. No account armed.")
+
+    @app.post("/api/credentials", dependencies=[Depends(mutation)])
+    def credentials(body: Credentials):
+        from contextlib import closing
+        from goxtrade.data.live_store import connect
+        from goxtrade.execution.account_management import assert_idle, assert_workers_stopped
+        from goxtrade.execution.projectx_client import save_credentials
+        assert_workers_stopped()
+        with closing(connect()) as conn:
+            assert_idle(conn)
+        save_credentials(body.username, body.api_key.get_secret_value())
+        return dict(message="Credentials saved locally. Restart workers after changing the login.")
+
+    @app.post("/api/connection/test", dependencies=[Depends(mutation)])
+    def connection_test():
+        from goxtrade.execution.projectx_client import login
+        try:
+            login()
+        except Exception:
+            raise HTTPException(503, "ProjectX authentication unavailable. Check the key, network and provider access.")
+        return dict(message="Authentication succeeded. No orders submitted.")
+
+    @app.post("/api/accounts/refresh", dependencies=[Depends(mutation)])
+    def account_refresh():
+        from goxtrade.execution.live_accounts import enabled_accounts, search_accounts, copy_role
+        return dict(accounts=[dict(**row, copy_role=copy_role(row)) for row in enabled_accounts(search_accounts())])
+
+    @app.post("/api/accounts/{profile}/replace", dependencies=[Depends(mutation)])
+    def replace(profile: Profile, body: Replacement):
+        if not body.confirmed:
+            raise ValueError("Confirm flat accounts, stopped workers and verified copier setup")
+        from goxtrade.execution.account_management import replace_account
+        replace_account(profile, body.account_id, body.name)
+        state.CACHE.invalidate()
+        return dict(message="Replacement saved. Restart the interface and workers before explicit authorization.")
+
+    @app.post("/api/execution/{profile}/{action}", dependencies=[Depends(mutation)])
+    async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor"], body: Authorization):
+        async with app.state.action_lock:
+            return await asyncio.to_thread(execute, profile, action, body)
+
+    @app.post("/api/workers/{action}", dependencies=[Depends(mutation)])
+    def workers(action: Literal["start", "stop"]):
+        from goxtrade.runtime import live_process
+        from goxtrade.runtime.manage_app import stop_workers
+        if action == "start":
+            identity.assert_current("practice")
+            identity.assert_current("leader")
+            from goxtrade.execution.projectx_client import credentials_present
+            if not credentials_present():
+                raise ValueError("Configure credentials first")
+            return live_process.start()
+        stop_workers()
+        return dict(message="Trading workers stopped after broker-flat verification. Interface remains open.")
+
+    @app.post("/api/alerts/clear", dependencies=[Depends(mutation)])
+    def clear(body: ClearAlerts):
+        from goxtrade.bot.watch_alerts import clear_watch_alerts
+        count = clear_watch_alerts(body.ids)
+        state.CACHE.invalidate()
+        return dict(message=f"Cleared {count} watch-only alerts. Open and uncertain orders remain protected.")
+
+    @app.post("/api/instruments", dependencies=[Depends(mutation)])
+    def instrument(body: Instrument):
+        from goxtrade.data.symbol_store import add_symbol
+        from goxtrade.execution.contracts import is_valid_contract_id, save_contract
+        if body.contract_id and not is_valid_contract_id(body.contract_id):
+            raise ValueError("Invalid contract mapping")
+        ok, message = add_symbol(body.symbol)
+        if ok and body.contract_id:
+            save_contract(body.symbol.strip().upper(), body.contract_id)
+        if not ok:
+            raise ValueError(message)
+        return dict(message=message)
+
+    @app.delete("/api/instruments/{symbol}", dependencies=[Depends(mutation)])
+    def remove_instrument(symbol: str):
+        from goxtrade.data.symbol_store import remove_symbol
+        remove_symbol(symbol)
+        return dict(message="Watchlist instrument removed; execution permissions unchanged.")
+
+    @app.post("/api/history/{symbol}", dependencies=[Depends(mutation)])
+    def history(symbol: Literal["NQ=F", "ES=F", "YM=F", "MNQ=F", "MES=F", "MYM=F"]):
+        from goxtrade.data.chart_history import backfill_history
+        return dict(message=f"Retrieved {backfill_history(symbol)} actual contract bars.")
+
+    @app.get("/api/research", dependencies=[Depends(session)])
+    def research_runs():
+        from goxtrade.research.result_store import saved_runs
+        return state.clean(dict(runs=saved_runs()))
+
+    @app.post("/api/research", dependencies=[Depends(mutation)])
+    def research(body: Research):
+        from io import StringIO
+        import pandas as pd
+        from goxtrade.research.backtest import SimulationConfig, run_backtest
+        from goxtrade.research.result_store import save_run
+        from goxtrade.strategies.strategy_settings import read_vwap_ema_config
+        source = pd.read_csv(StringIO(body.csv))
+        if len(source) > 15000:
+            raise ValueError("Use at most 15000 actual minute bars per interactive research run")
+        config = read_vwap_ema_config()
+        sim = SimulationConfig(quantity=body.quantity, commission_per_side=body.commission, zero_cost_sensitivity=body.zero_cost_sensitivity, slippage_ticks=body.slippage)
+        result = run_backtest(source, body.symbol, body.contract_id, strategy=body.strategy, strategy_config=config, simulation=sim)
+        number = save_run(dict(symbol=body.symbol, contract_id=body.contract_id), result)
+        return state.clean(dict(message="Simulated research saved separately from broker results.", id=number, result=result))
+
+    if DIST.exists():
+        app.mount("/assets", StaticFiles(directory=DIST/"assets"), name="assets")
+
+    @app.get("/{path:path}")
+    def index(path: str):
+        if path.startswith("api/"):
+            raise HTTPException(404)
+        if not (DIST/"index.html").exists():
+            raise HTTPException(503, "Frontend is not built. Run npm ci and npm run build in web/.")
+        return FileResponse(DIST/"index.html", headers={"Cache-Control": "no-cache"})
+
+    return app
+
+
+def execute(profile, action, body):
+    from goxtrade.execution import practice_executor, leader_execution
+    target = identity.TARGETS[profile]
+    if action in ("arm", "emergency") and (body.name != target["name"] or not body.safeguards):
+        raise ValueError("Confirm the exact execution account and protective/copy safeguards")
+    if action in ("arm", "monitor"):
+        identity.assert_current(profile)
+    if action == "arm":
+        from datetime import datetime, timezone
+        runtime = (practice_executor.snapshot() if profile == "practice" else leader_execution.snapshot())[1]
+        try:
+            elapsed = (datetime.now(timezone.utc)-datetime.fromisoformat(runtime["updated_at"])).total_seconds()
+        except (KeyError, ValueError, TypeError):
+            elapsed = float("inf")
+        if not 0 <= elapsed < 45 or runtime.get("account_id") != target["id"]:
+            raise ValueError("A fresh worker for this exact account must be online before authorization")
+    if profile == "leader":
+        if action == "monitor":
+            leader_execution.start_worker()
+        elif action == "arm":
+            settings = leader_execution.snapshot()[0]
+            leader_execution.command("arm", confirmed_account=target["name"], copier_confirmed=True,
+                                     acknowledge_loss=body.acknowledge_loss, quantities=settings.get("quantities", dict(MNQ=2, MES=2, MYM=2)))
+        else:
+            leader_execution.command(action, confirmed_account=target["name"])
+    else:
+        if action == "arm":
+            settings = practice_executor.snapshot()[0]
+            practice_executor.arm(500, 500, True, quantities=settings.get("quantities", dict(MNQ=2, MES=2, MYM=2)),
+                                  acknowledge_loss=body.acknowledge_loss, enable_mym=settings.get("enable_mym", False))
+        elif action == "pause":
+            practice_executor.pause()
+        elif action == "emergency":
+            practice_executor.request_emergency_close(True)
+        else:
+            raise ValueError("Practice monitoring is part of the separately started market worker")
+    state.CACHE.invalidate()
+    return dict(message="Request recorded. Broker fills and worker status remain authoritative.")
+
+
+_chart_cache = {}
+_chart_lock = __import__("threading").Lock()
+
+
+def chart_data(symbol, minutes, hours):
+    key = (symbol, minutes, hours)
+    with _chart_lock:
+        cached = _chart_cache.get(key)
+        if cached and time.monotonic()-cached[0] < 2:
+            return cached[1]
+        from goxtrade.data.chart_history import chart_history
+        from goxtrade.market.chart_indicators import indicator_points
+        # Local history only. Explicit POST recovery is the only broker backfill path.
+        points = indicator_points(chart_history(symbol, hours=hours), f"{minutes}min")
+        value = state.clean(dict(symbol=symbol, minutes=minutes, points=points))
+        if len(_chart_cache) > 40:
+            _chart_cache.clear()
+        _chart_cache[key] = (time.monotonic(), value)
+        return value
+
+
+app = create_app()

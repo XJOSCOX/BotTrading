@@ -11,6 +11,9 @@ from zoneinfo import ZoneInfo
 def render_trade_history():
     st.subheader("Activity & results")
     state, fills = practice_history.snapshot()
+    if state.get("account_id") not in (None, executor.ACCOUNT_ID):
+        state = dict(error=True)
+    fills = [fill for fill in fills if fill.get("accountId", executor.ACCOUNT_ID) == executor.ACCOUNT_ID]
     if state.get("error"):
         st.warning("History refresh unavailable. Showing saved fills.")
     updated = state.get("updated_at")
@@ -67,7 +70,7 @@ def render_practice():
     if not fresh:
         st.warning("Practice worker is not updating. Keep the live-feed service running.")
     unresolved = any(j["state"] not in ("Closed", "Rejected") for j in jobs)
-    gate = practice_safety.snapshot()
+    gate = practice_safety.snapshot(executor.TARGET["gate_id"])
     st.text(f"Account loss lock: USD 500 / Realized loss: USD {gate.get('loss', 0):,.2f}")
     if gate.get("locked"):
         st.error("$500 loss lock. Confirmation required before trading can resume.")

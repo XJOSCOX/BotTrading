@@ -9,6 +9,11 @@ COPY_PROFILE = CONFIG_DIR / "copy_accounts.json"
 
 
 def copy_role(account):
+    from goxtrade.config import execution_identity
+    if execution_identity.ACCOUNT_FILE.exists():
+        target = execution_identity.current_targets()["leader"]
+        if account.get("id") == target["id"] and account.get("name") == target["name"]:
+            return "Leader"
     try:
         profile = json.loads(COPY_PROFILE.read_text(encoding="utf-8"))
     except (OSError, ValueError):

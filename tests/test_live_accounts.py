@@ -32,21 +32,20 @@ class LiveAccountsTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     live_accounts.save_quantities(1,dict(MNQ=value,MES=2,MYM=2))
 
-    def test_page_defaults_and_save(self):
+    def test_account_page_refresh_is_explicit_and_read_only(self):
         from streamlit.testing.v1 import AppTest
-        with tempfile.TemporaryDirectory() as folder, patch('goxtrade.data.live_store.DB_PATH', Path(folder)/"test.db"), patch('goxtrade.execution.leader_execution.start_worker'), patch('goxtrade.execution.practice_history.ensure_worker'), patch.object(live_accounts, "SETTINGS", Path(folder)/"settings.json"), patch('goxtrade.ui.execution.live_page.credentials_present', return_value=True), patch(
-            'goxtrade.ui.execution.live_page.search_accounts', return_value=[dict(id=123,name="Test",balance=50000,canTrade=True,simulated=True)]
-        ):
+        with tempfile.TemporaryDirectory() as folder, patch('goxtrade.data.live_store.DB_PATH', Path(folder)/"test.db"), \
+                patch('goxtrade.execution.practice_history.ensure_worker'), patch('goxtrade.ui.accounts.credentials_present', return_value=True), \
+                patch('goxtrade.ui.accounts.search_accounts', return_value=[dict(id=123,name="Test",balance=50000,canTrade=True,simulated=True)]) as search:
             app = AppTest.from_file("app.py")
-            app.query_params["page"] = "Live"
+            app.query_params["page"] = "Accounts"
             app.run(timeout=20)
             self.assertFalse(app.exception)
-            app.selectbox(key="live_account_choice").select(123).run()
-            self.assertEqual([app.number_input(key=f"live_qty_123_{s}").value for s in ("MNQ","MES","MYM")], [2,2,2])
-            app.number_input(key="live_qty_123_MNQ").set_value(4)
-            next(b for b in app.button if b.label == "Save sizing").click().run()
+            search.assert_not_called()
+            next(button for button in app.button if button.label == "Refresh accounts").click().run()
             self.assertFalse(app.exception)
-            self.assertEqual(live_accounts.quantities_for(123)["MNQ"],4)
+            search.assert_called_once()
+            self.assertEqual(app.dataframe[0].value.iloc[0]["ID"], 123)
 
 
 if __name__ == "__main__":

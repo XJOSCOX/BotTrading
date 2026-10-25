@@ -1,15 +1,15 @@
 <!doctype html>
 <html><head><meta charset="utf-8"><style>
-html,body {margin:0;background:#0f131a;color:#d6dce5;font:12px 'Segoe UI',sans-serif;overflow:hidden;}
+html,body {margin:0;background:#151716;color:#e8e9e6;font:12px Inter,system-ui,'Segoe UI',sans-serif;overflow:hidden;}
 #frame {border:1px solid #46505e;border-radius:6px;overflow:hidden;box-sizing:border-box;}
-#toolbar {height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;background:#191f28;border-bottom:1px solid #39414d;box-sizing:border-box;}
+#toolbar {height:34px;display:flex;align-items:center;gap:6px;padding:0 8px;background:#1c1f1d;border-bottom:1px solid #343a34;box-sizing:border-box;}
 #title {flex:1;min-width:0;overflow:hidden;white-space:nowrap;}
-button {background:#222831;color:#d6dce5;border:1px solid #39414d;border-radius:4px;height:26px;min-width:28px;cursor:pointer;}
-button:hover {background:#343d49;}
+button {background:#252b25;color:#e8e9e6;border:1px solid #454d44;border-radius:4px;height:26px;min-width:28px;cursor:pointer;}
+button:hover {background:#354032;}
 #chart {width:100%;}
 #price-pane {position:relative;}
 #ohlc {position:absolute;top:7px;left:8px;z-index:2;pointer-events:none;font-size:11px;color:#afb8c5;max-width:calc(100% - 90px);line-height:1.6;}
-#summary {display:flex;gap:5px 16px;flex-wrap:wrap;padding:6px 8px;background:#151b23;font-size:11px;line-height:16px;}
+#summary {display:flex;gap:5px 16px;flex-wrap:wrap;padding:6px 8px;background:#191d19;font-size:11px;line-height:16px;}
 #summary span {color:#9da8b8;white-space:nowrap;}
 #summary b {margin-left:5px;color:#e0e5ec;font-weight:600;}
 #indicators {position:relative;}
@@ -18,7 +18,7 @@ button:hover {background:#343d49;}
 #indicator-menu label {display:block;padding:5px 0;}
 .indicator {position:relative;border-top:1px solid #46505e;}
 .indicator-label {position:absolute;top:4px;left:8px;z-index:2;font-size:11px;color:#abb4c1;pointer-events:none;}
-.pane-divider {height:7px;background:#242c37;cursor:row-resize;touch-action:none;display:flex;align-items:center;justify-content:center;}
+.pane-divider {height:7px;background:#2c332b;cursor:row-resize;touch-action:none;display:flex;align-items:center;justify-content:center;}
 .pane-divider:after {content:'';height:2px;width:32px;background:#758195;border-radius:2px;}
 .pane-divider:hover,.pane-divider:focus {background:#3a495b;outline:none;}
 </style></head><body>
@@ -178,8 +178,8 @@ window.addEventListener('message',event=>{
     storageKey='goxtrade-chart-v2:'+args.symbol+':'+(args.timeframe || '1min')+(args.strategy_overlay?':vwap':'');
     if(args.strategy_overlay) document.getElementById('show-rsi').checked=false;
     chart=LightweightCharts.createChart(document.getElementById('chart'),{
-      autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#d6dce5'},
-      grid:{vertLines:{color:'#1f2630'},horzLines:{color:'#1f2630'}},
+      autoSize:true,layout:{background:{type:'solid',color:'#151716'},textColor:'#c7cac5'},
+      grid:{vertLines:{color:'#262c26'},horzLines:{color:'#262c26'}},
       timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8,
         tickMarkFormatter:(time,type)=>type<=2?dateFormat.format(new Date(time*1000)):timeFormat.format(new Date(time*1000))},
       localization:{timeFormatter:time=>dateFormat.format(new Date(time*1000))+' '+timeFormat.format(new Date(time*1000))+' CT'},
@@ -195,8 +195,8 @@ window.addEventListener('message',event=>{
     strategyVwapSeries=chart.addLineSeries({color:'#60a5fa',lineWidth:2,priceLineVisible:false,visible:false});
     series.priceScale().applyOptions({scaleMargins:{top:0.08,bottom:0.08},minimumWidth:80});
     chart.timeScale().applyOptions({visible:false});
-    const indicatorOptions={autoSize:true,layout:{background:{type:'solid',color:'#0f131a'},textColor:'#aab3c0'},
-      grid:{vertLines:{color:'#1f2630'},horzLines:{visible:false}},
+    const indicatorOptions={autoSize:true,layout:{background:{type:'solid',color:'#151716'},textColor:'#a0a59f'},
+      grid:{vertLines:{color:'#262c26'},horzLines:{visible:false}},
       rightPriceScale:{minimumWidth:80,borderVisible:false},
       timeScale:{timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8,
         tickMarkFormatter:(time,type)=>type<=2?dateFormat.format(new Date(time*1000)):timeFormat.format(new Date(time*1000))},

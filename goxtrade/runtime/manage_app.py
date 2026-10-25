@@ -10,7 +10,7 @@ from goxtrade.runtime import ensure_running
 from goxtrade.execution import leader_execution
 from goxtrade.runtime import live_process
 from goxtrade.execution import practice_executor
-from goxtrade.config.execution_target import TARGETS
+from goxtrade.config.execution_identity import TARGETS
 from goxtrade.execution.projectx_client import login, post
 from goxtrade.paths import ROOT
 
@@ -36,6 +36,8 @@ def broker_flat() -> bool:
     if accounts.get("success") is not True:
         raise RuntimeError("Could not verify Topstep accounts")
     for target in TARGETS.values():
+        if target["name"].startswith("YOUR_"):
+            continue
         if not any(row.get("id") == target["id"] and row.get("name") == target["name"] for row in accounts.get("accounts", [])):
             raise RuntimeError("Topstep account identity could not be verified")
         for endpoint, key in (("/api/Position/searchOpen", "positions"), ("/api/Order/searchOpen", "orders")):
@@ -48,6 +50,13 @@ def broker_flat() -> bool:
 
 
 def stop() -> None:
+    stop_workers()
+    stop_owned_process(ensure_running.WEB_PID, "streamlit")
+    print("GoXTrade stopped. New entries are paused.")
+
+
+def stop_workers() -> None:
+    """Leave the web workspace open for account maintenance."""
     practice_executor.pause()
     leader_execution.command("pause")
     time.sleep(2)
@@ -57,19 +66,21 @@ def stop() -> None:
     if not broker_flat():
         raise RuntimeError("Topstep reports an open position or order; new entries are paused, but exit monitoring must stay on")
     live_process.stop()
-    for path, label in ((LEADER_PID, "leader_worker.py"), (ensure_running.WEB_PID, "streamlit")):
-        try:
-            payload = path.read_text(encoding="utf-8")
-            pid = int(json.loads(payload)["pid"] if path == ensure_running.WEB_PID else payload)
-        except (OSError, ValueError, KeyError, TypeError):
-            continue
-        if live_process._pid_running(pid):
-            command = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"], capture_output=True, text=True, timeout=10)
-            if command.returncode != 0 or label.lower() not in command.stdout.lower() or str(ROOT).lower() not in command.stdout.lower():
-                raise RuntimeError(f"Could not safely identify {label} process")
-            subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=True, capture_output=True, timeout=15)
-        path.unlink(missing_ok=True)
-    print("GoXTrade stopped. New entries are paused.")
+    stop_owned_process(LEADER_PID, "leader_worker.py")
+
+
+def stop_owned_process(path, label):
+    try:
+        payload = path.read_text(encoding="utf-8")
+        pid = int(json.loads(payload)["pid"] if path == ensure_running.WEB_PID else payload)
+    except (OSError, ValueError, KeyError, TypeError):
+        return
+    if live_process._pid_running(pid):
+        command = subprocess.run(["powershell", "-NoProfile", "-Command", f"(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine"], capture_output=True, text=True, timeout=10)
+        if command.returncode != 0 or label.lower() not in command.stdout.lower() or str(ROOT).lower() not in command.stdout.lower():
+            raise RuntimeError(f"Could not safely identify {label} process")
+        subprocess.run(["taskkill", "/PID", str(pid), "/T", "/F"], check=True, capture_output=True, timeout=15)
+    path.unlink(missing_ok=True)
 
 
 def start() -> None:

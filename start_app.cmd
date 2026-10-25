@@ -1,13 +1,6 @@
 @echo off
 cd /d "%~dp0"
-"C:\Python313\python.exe" -m goxtrade.runtime.manage_app start
-if errorlevel 1 (
-    echo.
-    echo GoXTrade did not start. Review the error above.
-    pause
-    exit /b 1
-)
-echo.
-echo Open http://localhost:8502 in your browser.
-echo Trading controls retain their saved pause state.
-pause
+set "GOX_PYTHON=C:\Python313\python.exe"
+if exist "%~dp0.venv\Scripts\python.exe" set "GOX_PYTHON=%~dp0.venv\Scripts\python.exe"
+"%GOX_PYTHON%" -m goxtrade.runtime.native_app menu
+if errorlevel 1 pause

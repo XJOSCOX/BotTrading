@@ -4,4 +4,6 @@ yfinance
 python-dotenv
 requests
 signalrcore
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
 

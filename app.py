@@ -6,6 +6,9 @@ from goxtrade.ui.bot.page import render_bot
 from goxtrade.ui.dashboard.page import render_dashboard
 from goxtrade.ui.execution.live_page import render_live
 from goxtrade.ui.market.page import render_market
+from goxtrade.ui.control_center import render as render_controls
+from goxtrade.ui.accounts import render as render_accounts
+from goxtrade.ui.connection import render as render_connection
 
 
 st.set_page_config(page_title="GoXTrade", page_icon="GX", layout="wide")
@@ -17,14 +20,14 @@ def main() -> None:
         from goxtrade.execution.practice_history import ensure_worker
         ensure_worker()
     page = shell.render_sidebar()
-    if page == "Dashboard":
-        render_dashboard()
-    elif page == "Market":
-        render_market()
-    elif page == "Live":
-        render_live()
-    else:
-        render_bot()
+    with st.container(key="gox_workspace"):
+        from goxtrade.config.execution_identity import restart_required
+        if restart_required():
+            st.warning("Account identity changed. Restart the full app and workers before trading.")
+        pages = {"Dashboard": render_dashboard, "Charts": render_market, "Strategies": render_bot,
+                 "Control Center": render_controls, "Execution": render_live,
+                 "Accounts": render_accounts, "Connection": render_connection}
+        pages.get(page, render_dashboard)()
 
 
 if __name__ == "__main__":

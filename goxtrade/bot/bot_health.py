@@ -3,7 +3,7 @@ from contextlib import closing
 from datetime import datetime, timezone
 import json
 from goxtrade.data.live_store import connect
-from goxtrade.config.execution_target import TARGET
+from goxtrade.config.execution_identity import TARGET
 
 
 def record(positions, orders, account_id=TARGET["gate_id"]):

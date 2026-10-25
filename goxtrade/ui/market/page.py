@@ -11,6 +11,9 @@ from goxtrade.ui import shell
 
 @st.cache_data(ttl=300, show_spinner=False)
 def ensure_chart_backfill(symbol):
+    from goxtrade.execution.projectx_client import credentials_present
+    if not credentials_present():
+        return 0, "API credentials not configured; showing saved data."
     try:
         return backfill_history(symbol), None
     except Exception:
@@ -33,7 +36,9 @@ def render_live_market_chart(symbol: str, range_name: str, compact: bool = False
         range_label = range_name
 
     if data.empty:
-        st.warning("No live ticks yet. Start the Live Feed from the Dashboard and confirm credentials/contract ID.")
+        with st.container(border=True, height=height):
+            st.subheader(symbol.replace("=F", ""))
+            st.info("No saved price data. Check Connection for the market worker and contract mapping.")
         return
 
     latest = data.iloc[-1]
@@ -71,7 +76,7 @@ def render_session_status() -> dict:
 
 
 def render_market() -> None:
-    shell.page_header("WORKSPACE / PRICE ACTION", "Market", "Live charts and session data")
+    shell.page_header("Workspace", "Charts", "Price action, volume and momentum", "CHICAGO / CT")
 
     symbols = list(dict.fromkeys(['NQ=F', 'ES=F', 'YM=F'] + load_symbols()))
     if not symbols:

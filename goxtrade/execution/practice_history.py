@@ -5,12 +5,12 @@ from contextlib import closing
 from datetime import datetime, timedelta, timezone
 from threading import Event, Thread
 
-import streamlit as st
+from functools import lru_cache
 
 from goxtrade.data.live_store import connect
 from goxtrade.execution.practice_executor import ACCOUNT_ID, ACCOUNT_NAME
 from goxtrade.execution.projectx_client import login, post
-from goxtrade.config.execution_target import PROFILE
+from goxtrade.config.execution_identity import PROFILE
 
 
 def db():
@@ -62,7 +62,7 @@ def refresh(token):
                          [(r["id"], json.dumps(r)) for r in fills])
         conn.commit()
     write_status(updated_at=now.isoformat(), error=False,
-                 positions=positions["positions"], orders=orders["orders"])
+                 account_id=ACCOUNT_ID, positions=positions["positions"], orders=orders["orders"])
 
 
 def totals(fills):
@@ -88,7 +88,7 @@ def run():
         Event().wait(15)
 
 
-@st.cache_resource
+@lru_cache(maxsize=1)
 def ensure_worker():
     worker = Thread(target=run, name="practice-history-readonly", daemon=True)
     worker.start()

@@ -56,7 +56,7 @@ def configuration(config):
             values["enabled_symbols"] = input_field("enabled_symbols", config.enabled_symbols)
         with b:
             values["practice_enabled"] = input_field("practice_enabled", config.practice_enabled)
-            st.caption("Leader: prohibited. Practice also requires account arming and strategy selection in Controls & review.")
+            st.caption("Leader: prohibited. Practice also requires account arming and strategy selection in Control Center.")
         for title, names in GROUPS.items():
             with st.expander(title, expanded=title == "Indicators & timing"):
                 columns = st.columns(3)

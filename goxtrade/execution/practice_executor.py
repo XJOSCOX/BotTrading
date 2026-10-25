@@ -20,7 +20,7 @@ from goxtrade.strategies import overnight_policy
 from goxtrade.strategies import volatility_guard
 from goxtrade.strategies import entry_confirmation
 from goxtrade.bot import bot_health
-from goxtrade.config.execution_target import PROFILE, TARGET, assert_other_idle
+from goxtrade.config.execution_identity import PROFILE, TARGET, assert_other_idle, assert_current
 from goxtrade.strategies.strategy_catalog import order_block as execution_block, crossover_key
 
 ACCOUNT_ID = TARGET["id"]
@@ -49,6 +49,8 @@ def snapshot():
 
 
 def control(settings):
+    if settings.get("enabled"):
+        assert_current()
     with closing(db()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         if settings.get("enabled"):
@@ -90,6 +92,7 @@ def save_job(job):
 
 
 def claim(job):
+    assert_current()
     if execution_block(job, PROFILE):
         return False
     with closing(db()) as conn:
@@ -172,6 +175,7 @@ def quote_fresh(result, now):
 
 
 def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False):
+    assert_current()
     if confirmed is not True:
         raise ValueError("Confirm isolated Practice account and Auto OCO Brackets")
     if not all(math.isfinite(float(v)) and float(v) > 0 for v in (max_trade_loss, max_run_loss)):
@@ -652,6 +656,7 @@ def cycle(token):
             job.update(entry_confirmation=confirmation["reason"],confirmed_entry=confirmation["price"],stop_ticks=abs(payload["stopLossBracket"]["ticks"]))
             job["initial_risk_usd"] = abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"]
             bot_audit.emit(f"confirmation:{signal['id']}", "Entry confirmed", confirmation["reason"], signal["id"])
+            assert_current()
             response = post("/api/Order/place", payload, token=token)
             job.update(state="Submitted" if response.get("success") is True else "Rejected",
                        order_id=response.get("orderId"), error_code=response.get("errorCode"),

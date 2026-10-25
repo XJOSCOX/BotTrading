@@ -86,6 +86,9 @@ def controls():
 def activity():
     settings,runtime,jobs = leader.snapshot()
     feed,fills = leader.history()
+    if feed.get("account_id") not in (None, leader.TARGET["id"]):
+        feed = dict(error=True)
+    fills = [fill for fill in fills if fill.get("accountId", leader.TARGET["id"]) == leader.TARGET["id"]]
     health = bot_health.snapshot(feed,account_id=leader.TARGET["gate_id"])
     st.subheader("Activity & results")
     st.caption("Leader account / Executed bot trades")

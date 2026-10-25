@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 
 import requests
-from dotenv import load_dotenv
+from dotenv import load_dotenv, set_key
 from goxtrade.paths import ROOT
 
 
@@ -70,12 +70,9 @@ def credentials_present() -> bool:
 
 
 def save_credentials(username: str, api_key: str) -> None:
-    lines = {
-        "TOPSTEP_USERNAME": username.strip(),
-        "TOPSTEP_API_KEY": api_key.strip(),
-        "PROJECTX_API_URL": api_url(),
-        "PROJECTX_MARKET_HUB_URL": market_hub_url(),
-    }
-    content = "\n".join(f"{key}={value}" for key, value in lines.items()) + "\n"
-    ENV_PATH.write_text(content, encoding="utf-8")
+    if not username.strip() or not api_key.strip() or any(c in username+api_key for c in "\r\n\x00"):
+        raise ValueError("Username and API key must be non-empty single-line values")
+    # dotenv quotes values and preserves unrelated local settings.
+    set_key(ENV_PATH, "TOPSTEP_USERNAME", username.strip())
+    set_key(ENV_PATH, "TOPSTEP_API_KEY", api_key.strip())
     load_dotenv(ENV_PATH, override=True)

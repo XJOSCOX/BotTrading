@@ -3,7 +3,7 @@ import json
 from contextlib import closing
 from datetime import datetime, timezone
 from goxtrade.data.live_store import connect
-from goxtrade.config.execution_target import PROFILE
+from goxtrade.config.execution_identity import PROFILE
 
 
 def init(conn):

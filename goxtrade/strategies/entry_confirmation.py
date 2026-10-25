@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pandas as pd
 from goxtrade.data.chart_history import chart_history
 from goxtrade.execution.contracts import contract_for_symbol
-from goxtrade.config.execution_target import PROFILE
+from goxtrade.config.execution_identity import PROFILE
 from goxtrade.data.live_store import connect
 from goxtrade.data.price_ticks import valid_price
 from goxtrade.strategies.signal_candles import signal_candles
