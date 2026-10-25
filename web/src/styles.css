@@ -1669,3 +1669,65 @@ dialog.modal::backdrop {
     animation: none !important;
   }
 }
+.manager-strategy-row {
+  display: grid;
+  grid-template-columns:
+    minmax(130px, 1fr) minmax(130px, 1fr) minmax(180px, 1.3fr)
+    minmax(130px, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+.manager-priority,
+.strategy-manager .form-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.strategy-manager h2 {
+  margin-top: 24px;
+}
+.strategy-manager .metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px 0;
+  padding: 20px 0;
+  margin-bottom: 14px;
+  border-bottom: 1px solid var(--border);
+}
+.strategy-manager .metric-grid .metric {
+  padding: 0 16px;
+}
+.strategy-manager .metric-grid .metric:first-child {
+  padding-left: 0;
+}
+.strategy-manager .section-heading > div {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+@media (max-width: 1100px) {
+  .manager-strategy-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .manager-strategy-row > strong {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 520px) {
+  .strategy-manager .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .strategy-manager .metric-grid .metric {
+    padding: 0 10px;
+  }
+  .strategy-manager .metric-grid .metric:nth-child(even) {
+    border-right: 0;
+  }
+  .manager-strategy-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

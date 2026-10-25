@@ -46,8 +46,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
       setFeedback("");
     }
   }, [config, profile]);
-  const specs: Json[] = config.strategies,
-    eligible = specs.filter((s) => s.execution_profiles.includes(profile));
+  const specs: Json[] = config.strategies;
   const save = async (e: FormEvent) => {
     e.preventDefault();
     const result = await act("/policy/" + profile, {
@@ -107,12 +106,12 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
           <form className="editor" data-section="policy" onSubmit={save}>
             <h2>Entry configuration</h2>
             <div className="strategy-list">
-              {eligible.map((s) => (
+              {specs.map((s) => (
                 <label className="strategy-check" key={s.id}>
                   <input
                     type="checkbox"
                     aria-label={s.name}
-                    disabled={busy}
+                    disabled={busy || !s.execution_profiles.includes(profile)}
                     checked={draft.strategies?.includes(s.name) || false}
                     onChange={(e) =>
                       setDraft({
@@ -137,9 +136,11 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
                     </small>
                   </span>
                   <Badge>
-                    {s.execution_profiles.length === 1
-                      ? "Practice opt-in"
-                      : "Strategy"}
+                    {!s.execution_profiles.includes(profile)
+                      ? "Leader execution restricted"
+                      : s.execution_profiles.length === 1
+                        ? "Practice opt-in"
+                        : "Strategy"}
                   </Badge>
                 </label>
               ))}
@@ -211,8 +212,10 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
               management configuration.
             </p>
             <Notice>
-              VWAP EMA Cross is prohibited on Leader. Practice also requires
-              permission, complete data and a reviewed calendar.
+              Strategy parameters and intervals are shared between both views.
+              Account sizing and execution permission remain separate. VWAP EMA
+              Cross and Previous Day Box require separate Practice opt-in and
+              are not authorized for Leader execution.
             </Notice>
           </aside>
         </div>

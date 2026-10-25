@@ -81,6 +81,18 @@ class Research(Body):
     walk_forward: StrictBool = False
 
 
+class PortfolioDataset(Body):
+    symbol: Literal["MNQ", "MES", "MYM", "NQ", "ES", "YM"]
+    contract_id: Annotated[str, Field(min_length=1, max_length=100)]
+    csv: str = Field(min_length=1, max_length=1500000)
+
+
+class PortfolioResearch(Body):
+    datasets: list[PortfolioDataset] = Field(min_length=1, max_length=3)
+    walk_forward: StrictBool = False
+    compare: StrictBool = False
+
+
 def session(request: Request):
     key = request.cookies.get("gox_session", "")
     stored = request.app.state.sessions.get(key)
@@ -328,6 +340,50 @@ def create_app():
     def history(symbol: Literal["NQ=F", "ES=F", "YM=F", "MNQ=F", "MES=F", "MYM=F"]):
         from goxtrade.data.chart_history import backfill_history
         return dict(message=f"Retrieved {backfill_history(symbol)} actual contract bars.")
+
+    @app.get("/api/manager", dependencies=[Depends(session)])
+    def manager_view(profile: Profile = "practice"):
+        from goxtrade.execution.manager_service import overview
+        return state.clean(overview(profile))
+
+    @app.post("/api/manager/policy", dependencies=[Depends(mutation)])
+    def manager_policy(body: dict):
+        from goxtrade.execution.manager_service import save_policy
+        result = save_policy(body)
+        return dict(message="Research manager policy saved. Broker settings and arming unchanged.", policy=result.to_dict())
+
+    @app.post("/api/manager/evaluate/{profile}", dependencies=[Depends(mutation)])
+    def manager_shadow(profile: Profile):
+        from goxtrade.execution.manager_service import shadow
+        return state.clean(dict(message="Shadow decisions recorded. No broker authorization.", result=shadow(profile, persist=True)))
+
+    @app.post("/api/manager/paper", dependencies=[Depends(mutation)])
+    def manager_paper():
+        from goxtrade.execution.manager_service import paper_once
+        return state.clean(dict(message="Separate portfolio paper state evaluated; no broker orders.", result=paper_once()))
+
+    @app.post("/api/manager/paper/start", dependencies=[Depends(mutation)])
+    def manager_paper_start():
+        from goxtrade.runtime.manager_paper_worker import start
+        return dict(message=start())
+
+    @app.post("/api/manager/backtest", dependencies=[Depends(mutation)])
+    def manager_backtest(body: PortfolioResearch):
+        from io import StringIO
+        import pandas as pd
+        from goxtrade.execution.manager_service import policy, shared_strategy_configs, save_simulation
+        from goxtrade.research.portfolio_backtest import run_portfolio_backtest, compare_portfolios, walk_forward
+        datasets = [(item.symbol, item.contract_id, pd.read_csv(StringIO(item.csv))) for item in body.datasets]
+        if sum(len(frame) for _, _, frame in datasets) > 20000:
+            raise ValueError("Use at most 20000 actual minute bars per interactive portfolio run")
+        settings, configs = policy(), shared_strategy_configs()
+        result = run_portfolio_backtest(datasets, settings, configs)
+        if body.compare:
+            result["comparisons"] = {key: value["summary"] for key, value in compare_portfolios(datasets, settings, configs).items()}
+        if body.walk_forward:
+            result["walk_forward"] = [{key: value for key, value in row.items() if key != "result"} | dict(summary=row["result"]["summary"]) for row in walk_forward(datasets, settings, configs)]
+        identifier = save_simulation(result)
+        return state.clean(dict(message="Chronological portfolio simulation saved separately from broker results.", id=identifier, result=result))
 
     @app.get("/api/research", dependencies=[Depends(session)])
     def research_runs():

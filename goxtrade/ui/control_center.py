@@ -13,7 +13,7 @@ def render():
     if restart_required():
         st.warning("Restart the app after account replacement before editing execution policy.")
         return
-    execution, timing, indicator = st.tabs(["Execution policy", "Intervals & sessions", "VWAP EMA parameters"])
+    execution, timing, indicator, box = st.tabs(["Execution policy", "Intervals & sessions", "VWAP EMA parameters", "Previous Day Box"])
     with execution:
         profile = st.selectbox("Execution profile", ["practice", "leader"], format_func=str.title, key="control_profile")
         settings = (practice_executor.snapshot() if profile == "practice" else leader_execution.snapshot())[0]
@@ -24,6 +24,7 @@ def render():
             with st.form("execution_policy_"+profile):
                 choices = [spec.name for spec in SPECS if profile in spec.execution_profiles]
                 strategies = st.multiselect("Enabled strategies", choices, default=[name for name in policy["strategies"] if name in choices])
+                st.dataframe([{"Strategy": spec.name, "Monitoring / parameters": "Shared across Practice and Leader", "Account execution": "Selectable" if profile in spec.execution_profiles else "Restricted - separate authorization required"} for spec in SPECS], hide_index=True, width="stretch")
                 mym = st.toggle("Allow MYM entries", value=settings.get("enable_mym") is True)
                 columns = st.columns(3)
                 quantities = {name: column.number_input(name+" contracts", 1, 4, int(settings.get("quantities", {}).get(name, 2)), key="controls_qty_"+profile+name)
@@ -45,7 +46,7 @@ def render():
             st.metric("Maximum / symbol", "4 micro contracts")
             st.caption("Additional symbols: one contract. Overnight: one position, one contract, at least 15 minutes after close.")
             st.caption("Stops follow strategy structure. Open positions retain their frozen management rules.")
-            st.warning("VWAP EMA Cross is prohibited on Leader. Practice requires separate permission and reviewed calendar coverage.")
+            st.warning("VWAP EMA Cross and Previous Day Box are visible in both profiles, but Leader execution remains restricted. Practice opt-in does not authorize Leader.")
     with timing:
         left, right = st.columns([1.6, 1], gap="large")
         with left:
@@ -68,3 +69,6 @@ def render():
         from goxtrade.ui.bot.vwap_ema_panel import configuration
         from goxtrade.strategies.strategy_settings import read_vwap_ema_config
         configuration(read_vwap_ema_config())
+    with box:
+        from goxtrade.ui.bot.previous_day_box_panel import render as render_box
+        render_box()

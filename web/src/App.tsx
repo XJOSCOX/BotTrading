@@ -4,6 +4,7 @@ import {
   BarChart3,
   ChartCandlestick,
   SlidersHorizontal,
+  ListFilter,
   Zap,
   WalletCards,
   KeyRound,
@@ -30,6 +31,7 @@ import {
   type PageProps,
 } from "./pages";
 import { Badge, Notice } from "./components";
+import { StrategyManager } from "./pages/StrategyManager";
 
 const navigation = [
   {
@@ -71,6 +73,14 @@ const navigation = [
     group: "Trading",
     detail: "Account-specific authorization and actual fills",
     component: Execution,
+  },
+  {
+    name: "Strategy Manager",
+    id: "manager",
+    icon: ListFilter,
+    group: "Trading",
+    detail: "Shadow decisions and shared portfolio research",
+    component: StrategyManager,
   },
   {
     name: "Research",
