@@ -57,9 +57,11 @@ DST times fail closed. Futures sessions can span 23 or 25 hours around DST.
 VWAP never silently starts at a truncated file boundary. Every expected open
 minute from the anchor must exist. No price/volume is forward-filled. Zero-volume
 bars add zero weight; zero cumulative volume or a zero-volume signal candle blocks
-entry. The standard CT daily/weekend closures are encoded. Holiday/early-close
-calendars are not: an unexpected missing interval suppresses entries and needs
-manual review. Existing account holiday precautions still apply.
+entry. Standard CT daily/weekend closures are encoded. An optional reviewed CME
+calendar can only restrict execution windows; it is required for this strategy's
+broker Practice entries. This is not an automatic exchange-status service.
+Unexpected missing intervals suppress entries and need manual review. See
+[Phase 2 validation](PHASE2_VALIDATION.md) for calendar coverage and setup.
 
 ## Entry Modes
 
@@ -79,7 +81,10 @@ manual review. Existing account holiday precautions still apply.
 At most one directional event per strategy, symbol, actual contract, session,
 timeframe, mode and candle is consumed. Event IDs do not depend on the display
 name or detection poll. Repeated reads and restarts cannot replay the same event.
-Changing a filter does not create a second order from a consumed crossover.
+Changing a filter or entry mode does not create a second order from a consumed
+crossover. A separate canonical consumption key excludes mode and settings;
+per-mode immutable event IDs remain available for research. Configuration changes
+retain cooldown. Revised finalized history rebaselines provisional detection.
 Optional cooldown, minimum separation (ticks/ATR), EMA/VWAP slope, trailing
 historical-volume baseline, ATR bounds, CT sessions/custom windows, and maximum
 price drift are independently configurable hypotheses, not proven improvements.
@@ -122,16 +127,19 @@ and rejected orders are not blindly retried. Pausing entries keeps exits running
    freshness in Signal & chart. No chart is required to keep monitoring running.
 3. Complete contract-specific historical coverage is required. Existing legacy
    unlabelled chart bars are not silently attributed to the current contract.
-   Opening Market retrieves actual history with the established read-only API
-   backfill and saves its contract provenance. Without backfill, the monitor waits
+   Use **Load contract session history** here (or open Market) for explicit read-only
+   API backfill with contract provenance. This is disabled without credentials.
+   History is not automatically fetched on strategy startup. Without backfill, the monitor waits
    until the session has been captured. An API history failure never invents bars.
 4. For optional simulated forward testing, enable forward-paper and configure its
-   quantity, per-side commission and slippage. It waits for a subsequent actual
+   quantity, explicit per-side commission and whole-tick slippage. Zero fees require
+   an acknowledged zero-cost sensitivity scenario. It waits for a subsequent actual
    micro trade; it does not submit broker orders. Disabled entries still manage
    existing simulated positions with their frozen configuration. Contract rollover
    with an open paper position stops new paper activity for review.
 5. For broker **Practice**, explicitly enable the strategy's Practice permission,
-   select VWAP EMA Cross in Practice execution controls, verify the allowlisted
+   supply a fresh reviewed calendar as documented in Phase 2, select VWAP EMA Cross
+   in Practice execution controls, verify the allowlisted
    isolated account/OCO conditions and arm it yourself. All normal gates still apply.
    MYM needs its existing explicit activation. Never enable a copier accidentally.
 6. **Leader cannot run this strategy.** Any future promotion requires a separate
@@ -202,7 +210,13 @@ losses, holding/exposure, commission and estimated slippage, with session,
 instrument, mode and monthly breakdowns. No-loss profit factor is undefined (`--`),
 not an artificial large number. Drawdown includes available marked equity in a
 run; the comparison's closed-trade statistics cannot reconstruct unrecorded
-intratrade drawdown. Fees default zero and must be configured for useful research.
+intratrade drawdown. No commission is assumed: enter a per-contract/side amount,
+or explicitly select a zero-cost sensitivity scenario. Positive fees are still
+charged when that switch is selected. Research initial-risk and effective-RR limits
+do not change account settings. Invalid next-tick fills are recorded with immediate
+protective exits, not retrospectively cancelled. Closed-trade net, open entry fees,
+realized balance and marked equity are separate; monthly closed-trade returns use
+Chicago exit dates. Old implicit zero-fee runs are labeled unverified, not recalculated.
 
 Saved comparisons distinguish historical, forward-paper, broker Practice and
 Leader. Historical rows retain run/data hashes/date/size/cost context; paper rows
@@ -239,6 +253,11 @@ deleted, renamed or rewritten:
   actual-trade aggregation with atomic cursors; quotes do not contribute volume.
 - `strategy_historical_minutes`: explicit contract-scoped complete API bars.
   A complete historical bar replaces overlapping partial capture, never sums it.
+  Nullable `retrieved_at` records when backfill became known; older provenance is
+  unknown, not invented. Whole API responses are validated before replacement.
+- `strategy_feed_windows`: collector connection coverage. Partial startup minutes,
+  restart gaps and detected writer losses cannot establish finalized live minutes.
+  Connection coverage is not proof of provider exactly-once delivery.
 - `strategy_observations`: restart-safe sequence, gap and convergence state.
 - `strategy_signal_events`: immutable unique event snapshots and timestamps.
 - `strategy_event_consumption`: durable event-to-alert linkage, including cleared

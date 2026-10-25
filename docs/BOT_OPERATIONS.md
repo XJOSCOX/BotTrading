@@ -152,6 +152,14 @@ their frozen initial levels and management configuration.
 
 ## Delayed Monitoring Diagnosis
 
+Phase 2 adds mode-independent VWAP crossover consumption and stricter persisted
+order identity checks. Ambiguous new-strategy metadata fails closed; Leader stays
+prohibited. Final submission rechecks pause, balance loss lock, conflicts, schedule
+and freshness. No account limits or copier configuration were changed. Historical
+and simulated-paper fees must now be explicit. See [PHASE2_VALIDATION.md](PHASE2_VALIDATION.md)
+for the required reviewed-calendar setup before VWAP broker Practice, data recovery,
+tests and remaining limitations. No execution was enabled during validation.
+
 Practice entry confirmation update (October 9, 2026): the entry window is ten
 minutes after the 15m setup closes, allowing evaluation of a post-setup 5m close.
 Price outside the existing 0.5-setup-risk distance is Waiting, not a permanent

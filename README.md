@@ -57,6 +57,15 @@ Run commands from the project root. Background workers and diagnostics use packa
 
 See [BOT_OPERATIONS.md](docs/BOT_OPERATIONS.md) for strategy rules, safeguards, and limitations. New setups support 5/10/15-minute stop management. Automated trading can lose money; test in Practice before enabling a Leader account.
 
+## Phase 2 Validation
+
+See [PHASE2_VALIDATION.md](docs/PHASE2_VALIDATION.md) for confirmed defects, regression
+coverage, calendar configuration and remaining deployment blockers. Research now
+requires an explicit commission or acknowledged zero-cost sensitivity scenario.
+VWAP broker Practice additionally requires a fresh operator-reviewed CME calendar;
+missing calendar information blocks this strategy, never grants permission.
+No real-market profitability or TradingView feed parity has been established.
+
 ## VWAP EMA Cross
 
 The new strategy defaults to completed **3-minute** candles, **EMA9 Close**, and
