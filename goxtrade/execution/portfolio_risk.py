@@ -3,7 +3,7 @@ from dataclasses import asdict, dataclass
 from datetime import timedelta
 
 from goxtrade.execution.trade_candidate import exposure_key, finite, stamp
-from goxtrade.market.instruments import instrument
+from goxtrade.market.instruments import instrument, validate_contract_instrument
 from goxtrade.strategies.strategy_catalog import strategy_spec
 
 
@@ -35,6 +35,10 @@ class Exposure:
         return strategy_spec(self.strategy_id).correlation_group
 
     def valid(self):
+        try:
+            validate_contract_instrument(self.symbol, self.contract_id)
+        except (ValueError, TypeError, KeyError):
+            return False
         return (self.direction in ("LONG", "SHORT") and type(self.quantity) is int and self.quantity > 0
                 and all(finite(v) and v > 0 for v in (self.entry, self.stop)) and isinstance(self.owner, str) and bool(self.owner)
                 and isinstance(self.contract_id, str) and bool(self.contract_id.strip())

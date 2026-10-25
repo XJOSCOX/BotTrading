@@ -1,5 +1,6 @@
 """Explicit offline controls. Playback never starts from imports or app startup."""
 import copy
+import logging
 from functools import lru_cache
 import threading
 import time
@@ -13,9 +14,34 @@ from goxtrade.strategies.strategy_catalog import SPECS
 
 _lock=threading.RLock()
 _players={}
+_failures={}
+_failure_message="Replay stopped safely after a processing or ownership error; verify source/code before resuming"
+
+
+def _recover_failures():
+    """Retain a generation-fenced pause even when the database itself is unavailable."""
+    with _lock:
+        for identifier,generation in list(_failures.items()):
+            try:
+                record=store.get(identifier)
+                if record["generation"]==generation:
+                    record.update(status="paused",error=_failure_message)
+                    record.pop("candle_until",None)
+                    store.save(record)
+                _failures.pop(identifier,None)
+            except Exception:
+                # Do not echo database paths or source/provider content into logs.
+                logging.getLogger(__name__).warning("Replay failure pause pending: storage unavailable")
+
+
+def _failed(identifier,generation):
+    with _lock:
+        _failures[identifier]=generation
+        _recover_failures()
 
 
 def overview():
+    _recover_failures()
     return dict(sessions=store.summaries(),datasets=lab_store.read_rows("lab_datasets"),
                 strategies=[dict(id=s.id,name=s.name,minutes=s.signal_minutes) for s in SPECS],broker_execution=False)
 
@@ -83,6 +109,7 @@ def view(record):
 
 
 def detail(identifier):
+    _recover_failures()
     return view(store.get(identifier))
 
 
@@ -94,18 +121,17 @@ def chart(identifier,symbol):
     until=pd.Timestamp(record["clock"]).floor("min")
     if until<=pd.Timestamp(record["request"]["start"]):return dict(bars=[],symbol=symbol)
     # At most 500 revealed bars; never reveal an uncompleted historical candle.
-    frame=lab_store.frame(dataset["id"],max(pd.Timestamp(record["request"]["start"]),until-pd.Timedelta(minutes=500)),until,limit=500)
-    if frame.empty:return dict(bars=[],symbol=symbol)
-    close=frame["close"]
-    frame["ema20"]=close.ewm(span=20,adjust=False).mean()
-    frame["ema50"]=close.ewm(span=50,adjust=False).mean()
-    # VWAP uses only the current session, not an arbitrary rolling chart window.
     full=lab_store.frame(dataset["id"],record["request"]["start"],until,limit=10000)
+    if full.empty:return dict(bars=[],symbol=symbol)
+    # Compute causal indicators before truncating the display, preserving warmup.
+    full["ema20"]=full["close"].ewm(span=20,adjust=False).mean()
+    full["ema50"]=full["close"].ewm(span=50,adjust=False).mean()
+    # VWAP uses only the current session, not an arbitrary rolling chart window.
     from goxtrade.research.portfolio_forward_paper import trading_day
     full["session"]=[trading_day(pd.Timestamp(t)) for t in full["time"]]
     full["pv"]=((full.high+full.low+full.close)/3)*full.volume
     full["vwap"]=full.groupby("session").pv.cumsum()/full.groupby("session").volume.cumsum().replace(0,float("nan"))
-    frame=frame.merge(full[["time","vwap"]],on="time",how="left")
+    frame=full.tail(500).drop(columns=["session","pv"]).copy()
     box=None
     if "previous_day_box" in record["request"]["strategies"]:
         from goxtrade.strategies.previous_day_box_sessions import previous_box
@@ -125,6 +151,7 @@ def action(identifier,values):
         raise ValueError("Unknown replay control fields")
     operation=values.get("action")
     with _lock:
+        _recover_failures()
         record=store.get(identifier)
         if operation in ("pause","stop"):
             record.update(status="paused" if operation=="pause" else "stopped",generation=record["generation"]+1)
@@ -139,6 +166,7 @@ def action(identifier,values):
             if operation in ("play","resume") or not _players.get(identifier):loaded.cache_clear()
             datasets,events,prepared=verified(record)
             if record["status"]=="complete":raise ValueError("Replay complete; restart creates a separate session")
+            record.pop("error",None)
             if operation=="candle" and events:
                 record.update(status="playing",generation=record["generation"]+1,
                     candle_until=pd.Timestamp(events[record["next_index"]]["time"]).floor("min").isoformat())
@@ -156,7 +184,13 @@ def action(identifier,values):
             finished=[key for key,player in _players.items() if not player.is_alive()]
             for key in finished:_players.pop(key,None)
             thread=threading.Thread(target=_play,args=(identifier,record["generation"]),daemon=True,name="offline-replay")
-            _players[identifier]=thread;thread.start()
+            _players[identifier]=thread
+            try:
+                thread.start()
+            except Exception:
+                _players.pop(identifier,None)
+                _failed(identifier,record["generation"])
+                raise RuntimeError("Replay could not start; playback paused safely") from None
     return view(record)
 
 
@@ -185,9 +219,4 @@ def _play(identifier,generation):
                 if record["status"]=="complete":return
             time.sleep(.05)
     except Exception:
-        # No raw provider, source CSV or account information in persisted failures.
-        with _lock:
-            record=store.get(identifier)
-            if record["generation"]==generation:
-                record.update(status="paused",error="Replay stopped safely after a processing or ownership error; verify source/code before resuming")
-                store.save(record)
+        _failed(identifier,generation)

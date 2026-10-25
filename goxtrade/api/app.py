@@ -124,7 +124,10 @@ def create_app():
             return JSONResponse({"detail": "Loopback host required"}, status_code=403)
         if request.headers.get("sec-fetch-site") == "cross-site":
             return JSONResponse({"detail": "Cross-site access denied"}, status_code=403)
-        if int(request.headers.get("content-length", "0") or 0) > 1800000:
+        length=request.headers.get("content-length", "0")
+        if not length or not length.isascii() or not length.isdecimal() or len(length)>10:
+            return JSONResponse({"detail": "Invalid request length"}, status_code=400)
+        if int(length) > 1800000:
             return JSONResponse({"detail": "Request too large"}, status_code=413)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"

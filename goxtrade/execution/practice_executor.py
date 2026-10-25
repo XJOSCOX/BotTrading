@@ -171,8 +171,14 @@ def verify_account(token):
 
 def account_state(token):
     payload = {"accountId": ACCOUNT_ID}
-    return (call("/api/Position/searchOpen", payload, token)["positions"],
-            call("/api/Order/searchOpen", payload, token)["orders"])
+    positions = call("/api/Position/searchOpen", payload, token).get("positions")
+    orders = call("/api/Order/searchOpen", payload, token).get("orders")
+    for collection in (positions, orders):
+        if not isinstance(collection, list) or any(
+                not isinstance(row, dict) or row.get("accountId", ACCOUNT_ID) != ACCOUNT_ID
+                for row in collection):
+            raise RuntimeError("Broker exposure response is incomplete or belongs to another account")
+    return positions, orders
 
 
 def quote_fresh(result, now):
@@ -332,6 +338,12 @@ def opposing_exposure(side, positions, orders, jobs):
 
 
 def protective_order(order, job):
+    price = order.get("stopPrice")
+    tick = next((v[2] for v in MICROS.values() if v[0] == job.get("symbol")), None)
+    if (type(price) not in (int, float) or not math.isfinite(price) or price <= 0
+            or tick is None or abs(price/tick-round(price/tick)) > 1e-6
+            or order.get("accountId", ACCOUNT_ID) != ACCOUNT_ID):
+        return False
     return (job.get("order_id") is not None and order.get("parentOrderId") == job["order_id"]
             and order.get("contractId") == job.get("contract_id") and order.get("type") == 4
             and order.get("side") == 1-job.get("side", -2) and order.get("size") == job.get("quantity"))
@@ -429,9 +441,7 @@ def cycle(token):
                     pause()
                     status("Close not confirmed: review Practice manually")
                 continue
-            protected = any(o.get("type") == 4 and o.get("side") == 1-job["side"]
-                            and o.get("size") == job["quantity"] and job.get("order_id") is not None
-                            and o.get("parentOrderId") == job["order_id"] for o in working)
+            protected = any(protective_order(o, job) for o in working)
             signal = history.get(job["alert_id"])
             risk_stop = gate["locked"]
             scheduled_exit = execution_schedule()["flatten"]

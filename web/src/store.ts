@@ -48,7 +48,24 @@ export function connect() {
         window.dispatchEvent(new Event("gox-connected"));
       };
       socket.onmessage = (event) => {
-        const frame = JSON.parse(event.data);
+        let frame;
+        try {
+          frame = JSON.parse(event.data);
+          if (
+            !frame ||
+            !frame.data ||
+            typeof frame.data !== "object" ||
+            Array.isArray(frame.data)
+          )
+            throw new Error("Invalid live frame");
+        } catch {
+          update({
+            connected: false,
+            error: "Invalid live update. Reconnecting.",
+          });
+          socket?.close();
+          return;
+        }
         const changedResearch =
           frame.data.research_revision != null &&
           frame.data.research_revision !== data.research_revision;

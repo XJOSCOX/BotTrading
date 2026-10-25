@@ -119,11 +119,11 @@ class DiagnosticsTests(unittest.TestCase):
             network.post.assert_not_called()
 
     def test_existing_login_sanitized_and_structured_rejection(self):
-        with patch.object(projectx_client.requests,"post",return_value=response(success=False,errorCode=3,token="SECRET-TOKEN")):
+        with patch.object(projectx_client,"_blocked_auth",None), patch.object(projectx_client.requests,"post",return_value=response(success=False,errorCode=3,token="SECRET-TOKEN")):
             with self.assertRaises(projectx_client.ProjectXAuthError) as caught:projectx_client.login()
             self.assertEqual(caught.exception.code,"AUTH_FAILED")
             self.assertNotIn("SECRET",str(caught.exception))
-        with patch.object(projectx_client.requests,"post",return_value=response(success=False,errorCode=999,token="SECRET-TOKEN")):
+        with patch.object(projectx_client,"_blocked_auth",None), patch.object(projectx_client.requests,"post",return_value=response(success=False,errorCode=999,token="SECRET-TOKEN")):
             with self.assertRaises(projectx_client.ProjectXAuthError) as caught:projectx_client.login()
             self.assertEqual(caught.exception.code,"UNKNOWN_ERROR")
 

@@ -90,6 +90,9 @@ def eligibility(candidate, state, policy, now, scope):
                 or not isinstance(state.positions, tuple) or not isinstance(state.reservations, tuple)
                 or len(dict(state.contracts)) != len(state.contracts)):
             return "REJECTED", "Incomplete or ambiguous account risk state"
+        if any(type(getattr(state, key)) is not bool for key in (
+                "session_allowed", "paused", "armed", "reconciled", "unresolved", "emergency", "loss_locked")):
+            return "REJECTED", "Account safety switches must be verified booleans"
         if state.emergency or state.paused:
             return "EXECUTION_DISABLED", "Emergency stop or account pause is active"
         if state.unresolved:

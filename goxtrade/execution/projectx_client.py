@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import hashlib
+import threading
 
 import requests
 from dotenv import load_dotenv, set_key
@@ -9,12 +11,28 @@ from goxtrade.paths import ROOT
 
 ENV_PATH = ROOT / ".env"
 load_dotenv(ENV_PATH)
+_auth_lock = threading.Lock()
+_blocked_auth = None
 
 
 class ProjectXAuthError(RuntimeError):
     def __init__(self,message,code=None):
         super().__init__(message)
         self.code=code
+
+
+class ProjectXResponseError(RuntimeError):
+    """Unknown provider outcome: never safe evidence for resubmitting an order."""
+
+
+def object_response(response):
+    try:
+        data = response.json()
+    except ValueError:
+        raise ProjectXResponseError("Malformed ProjectX response; reconcile state before retrying") from None
+    if not isinstance(data, dict) or type(data.get("success")) is not bool:
+        raise ProjectXResponseError("Invalid ProjectX response schema; reconcile state before retrying")
+    return data
 
 
 def api_url() -> str:
@@ -31,6 +49,16 @@ def login() -> str:
     if not username or not api_key:
         raise ProjectXAuthError("Missing TOPSTEP_USERNAME or TOPSTEP_API_KEY in .env.")
 
+    identity = hashlib.sha256((api_url()+"\0"+username+"\0"+api_key).encode()).hexdigest()
+    with _auth_lock:
+        if _blocked_auth and _blocked_auth[0] == identity:
+            raise ProjectXAuthError("ProjectX credentials previously rejected; repair credentials or explicitly restart after provider access is restored", code=_blocked_auth[1])
+        return _login(username, api_key, identity)
+
+
+def _login(username, api_key, identity):
+    global _blocked_auth
+
     response = requests.post(
         f"{api_url()}/api/Auth/loginKey",
         json={"userName": username, "apiKey": api_key},
@@ -38,12 +66,17 @@ def login() -> str:
         timeout=15,
     )
     if response.status_code in (401,403):
-        raise ProjectXAuthError("ProjectX authentication rejected; verify API credentials and permissions",code="AUTH_FAILED" if response.status_code==401 else "PERMISSION_DENIED")
+        code="AUTH_FAILED" if response.status_code==401 else "PERMISSION_DENIED"
+        _blocked_auth=(identity,code)
+        raise ProjectXAuthError("ProjectX authentication rejected; verify API credentials and permissions",code=code)
     response.raise_for_status()
-    data = response.json()
-    if not data.get("success") or not data.get("token"):
+    data = object_response(response)
+    if data["success"] is not True or not isinstance(data.get("token"), str) or not data["token"].strip():
         code="AUTH_FAILED" if data.get("errorCode")==3 else "PERMISSION_DENIED" if data.get("errorCode") in (7,9,10) else "UNKNOWN_ERROR"
+        if code in ("AUTH_FAILED","PERMISSION_DENIED"):
+            _blocked_auth=(identity,code)
         raise ProjectXAuthError("ProjectX authentication unavailable; verify credentials, agreements and subscription",code=code)
+    _blocked_auth=None
     return data["token"]
 
 
@@ -60,7 +93,7 @@ def post(path: str, payload: dict, token: str | None = None) -> dict:
         timeout=15,
     )
     response.raise_for_status()
-    return response.json()
+    return object_response(response)
 
 
 def search_contracts(search_text: str, live: bool = False, token: str | None = None) -> list[dict]:
