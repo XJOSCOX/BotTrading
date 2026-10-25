@@ -85,12 +85,31 @@ def download(identifier, provider=None):
     start,end = interval(meta["start"],meta["end"])
     cursor = pd.Timestamp(job["cursor"] or start)
     provider = provider or ReadOnlyHistory()
+    cached=[d for d in store.read_rows("lab_datasets") if d["symbol"]==meta["symbol"] and d["contract_id"]==meta["contract_id"]
+            and d.get("expiration")==meta.get("expiration") and d.get("live",False)==meta.get("live",False) and d["source"]==meta["source"] and d["quality"]["eligible"]]
+    verified_cached=set()
     while cursor < end:
         if store.get("lab_jobs",identifier)["cancel"]:
             store.update_job(identifier,status="cancelled")
             return
         # At most 1440 one-minute timestamps, safely below the documented 20,000 cap.
         until = min(end,cursor+pd.Timedelta(days=1))
+        available=next((d for d in cached if pd.Timestamp(d["start"])<=cursor<pd.Timestamp(d["end"])),None)
+        if available:
+            until=min(until,pd.Timestamp(available["end"]))
+            source_event=next((event for event in available.get("retrieval_events",[]) if pd.Timestamp(event["start"])<=cursor<pd.Timestamp(event["end"])),None)
+            if source_event:until=min(until,pd.Timestamp(source_event["end"]))
+            if available["id"] not in verified_cached:
+                store.verify_dataset(available["id"])
+                verified_cached.add(available["id"])
+            rows=store.frame(available["id"],cursor,until,limit=1441).to_dict("records")
+            event=dict(start=cursor.isoformat(),end=until.isoformat(),bars=len(rows),duplicates=0,
+                       retrieved_at=source_event["retrieved_at"] if source_event else available["retrieved_at"],copied_at=store.now(),source_dataset_id=available["id"],status="cached verified snapshot")
+            if not store.stage_chunk(identifier,rows,until.isoformat(),event,owner=job.get("owner")):
+                store.update_job(identifier,status="cancelled")
+                return
+            cursor=until
+            continue
         bars = provider.bars(dict(contractId=meta["contract_id"],live=meta.get("live",False),startTime=cursor.isoformat(),endTime=until.isoformat(),
                                  unit=2,unitNumber=1,limit=20000,includePartialBar=False))
         rows, unique, duplicate_count,observed_order = [], {}, 0,[]

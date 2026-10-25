@@ -8,7 +8,7 @@ from goxtrade.data import lab_store as store
 
 
 def trades_csv(run):
-    fields = ["strategy","symbol","contract_id","direction","entry_time","entry","initial_stop","target","quantity","exit_time","exit","reason","gross","costs","net","mfe_dollars","mae_dollars","profit_giveback","maximum_r","regimes"]
+    fields = ["strategy","symbol","contract_id","direction","signal_detected_at","confirmed_at","expires_at","entry_time","entry","initial_stop","initial_target","target","quantity","exit_time","exit","reason","gross","costs","net","mfe_dollars","mae_dollars","profit_giveback","maximum_r","regimes"]
     output = io.StringIO()
     writer = csv.DictWriter(output,fieldnames=fields,extrasaction="ignore")
     writer.writeheader()

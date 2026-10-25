@@ -48,7 +48,10 @@ def book_portfolio(state, position):
         symbol=candidate["symbol"], contract_id=candidate["contract_id"], direction=candidate["direction"],
         quantity=managed["original_quantity"], entry=managed["entry"], exit=sum(fill["quantity"]*fill["price"] for fill in fills)/managed["original_quantity"],
         entry_time=managed["entered_at"], exit_time=managed["last_time"], initial_stop=managed["initial_stop"], target=managed["target"],
+        signal_detected_at=candidate["created_at"],confirmed_at=candidate["confirmed_at"],expires_at=candidate["expires_at"],
+        initial_target=managed["initial_target"],
         gross=managed["realized_gross"], costs=diagnostics["fees"], net=net, reason=managed["last_exit_reason"],
+        slippage_cost=diagnostics["slippage_dollars"]+managed["original_quantity"]*position["policy"]["slippage_ticks"]*instrument(candidate["symbol"]).tick_value,
         session=candidate["session"], candidate_id=candidate["candidate_id"], setup_id=candidate["setup_id"],
         holding_seconds=diagnostics["holding_seconds"], partial_fills=fills, management_analytics=diagnostics, exit_policy=managed["policy"]))
     state["last_closed_at"] = managed["last_time"]
@@ -130,6 +133,7 @@ def single_paper_tick(active, price, when, symbol, spec, sim, minutes, policy_sn
         exit=sum(fill["quantity"]*fill["price"] for fill in fills)/managed["original_quantity"],
         entry_time=active["entry_time"], exit_time=managed["last_time"], quantity=managed["original_quantity"],
         gross=managed["realized_gross"], costs=details["fees"], net=details["realized_net"], session=active.get("session"),
+        slippage_cost=details["slippage_dollars"]+managed["original_quantity"]*sim.slippage_ticks*instrument(symbol).tick_value,
         reason=managed["last_exit_reason"], unique_setup_id=active["unique_setup_id"], partial_fills=fills,
         management_analytics=details, exit_policy=managed["policy"], test_type="forward_paper", ambiguous=False,
         detection_sequence=active["detection_sequence"], entry_sequence=active["entry_sequence"])

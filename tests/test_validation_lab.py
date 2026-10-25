@@ -113,6 +113,18 @@ class LabTests(unittest.TestCase):
         other=store.job("history",{**request,"expiration":"2026-12-19"})
         download(other["id"],type("Empty",(),{"bars":lambda self,payload:[]})())
         self.assertEqual(store.get("lab_jobs",other["id"])["quality"]["status"],"unavailable")
+        request=request_metadata(dict(symbol="MNQ",contract_id=CONTRACT,start=START,end="2026-10-22T15:10:00Z",expiration="2026-12-18",calendar_reviewed=True,calendar_note="fixture calendar"))
+        cached=store.save_dataset(minutes(),{**request,"end":END})
+        incremental=store.job("history",request)
+        calls=[]
+        class NewMinutes:
+            def bars(self,payload):
+                calls.append(payload)
+                return [dict(t=r["time"],o=r["open"],h=r["high"],l=r["low"],c=r["close"],v=r["volume"]) for r in minutes(payload["startTime"],payload["endTime"]).to_dict("records")]
+        download(incremental["id"],NewMinutes())
+        self.assertEqual(len(calls),1)
+        self.assertEqual(calls[0]["startTime"],END)
+        self.assertEqual(store.get("lab_jobs",incremental["id"])["events"][0]["source_dataset_id"],cached["id"])
 
     def test_rate_limit_timeout_retry_bound_and_safe_auth_errors(self):
         response=requests.Response();response.status_code=429;response.headers["Retry-After"]="2"
@@ -196,6 +208,10 @@ class LabTests(unittest.TestCase):
         self.assertIn("positions:2",run["comparisons"]["portfolios"])
         self.assertIn("fees +25%",run["comparisons"]["costs"])
         self.assertGreater(run["result"]["state"]["trades"][0]["costs"],0)
+        self.assertGreater(run["result"]["summary"]["metrics"]["estimated_slippage"],0)
+        trade=run["result"]["state"]["trades"][0]
+        self.assertLess(pd.Timestamp(trade["confirmed_at"]),pd.Timestamp(trade["entry_time"]))
+        self.assertLessEqual(pd.Timestamp(trade["signal_detected_at"]),pd.Timestamp(trade["entry_time"]))
         self.assertTrue(lab.trade_window(run,0)["bars"])
         self.assertEqual(store.job("validation",request)["id"],job["id"])
 
