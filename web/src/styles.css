@@ -1816,6 +1816,15 @@ dialog.modal::backdrop {
 .replay-config > div {
   min-width: 0;
 }
+.market-replay {
+  min-width: 0;
+}
+.market-replay .table-scroll table {
+  min-width: 720px;
+}
+.market-replay .table-scroll td {
+  overflow-wrap: normal;
+}
 .replay-config .form-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

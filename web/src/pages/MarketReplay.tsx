@@ -160,7 +160,7 @@ function MarketReplayPage(_: PageProps) {
     });
   const a = session?.virtual_account;
   return (
-    <>
+    <div className="market-replay">
       <div className="section-heading">
         <Badge>OFFLINE / SIMULATED</Badge>
         <button onClick={() => setTab("Configuration")}>
@@ -445,6 +445,10 @@ function MarketReplayPage(_: PageProps) {
               <Metric label="Daily drawdown" value={money(a.daily_drawdown)} />
               <Metric label="Consecutive losses" value={a.consecutive_losses} />
             </div>
+            <p className="muted">
+              Open positions: {a.open_positions} / Pending entries: {a.pending}{" "}
+              / Maximum drawdown: {money(a.maximum_drawdown)}
+            </p>
             <ReplayChart
               bars={bars}
               session={{
@@ -457,43 +461,72 @@ function MarketReplayPage(_: PageProps) {
                 ),
               }}
             />
+            {!!session.pending.length && (
+              <section>
+                <h2>Pending simulated entries</h2>
+                <Table
+                  heads={[
+                    "Instrument",
+                    "Strategy",
+                    "Side",
+                    "Qty",
+                    "Selected",
+                    "Stop",
+                  ]}
+                  rows={session.pending.map((p: Json) => [
+                    p.exposure.symbol,
+                    p.candidate.strategy_name,
+                    p.candidate.direction,
+                    p.exposure.quantity,
+                    ct(p.selected_at),
+                    price(p.exposure.stop),
+                  ])}
+                />
+              </section>
+            )}
             <section>
               <h2>Trade management</h2>
-              <Table
-                heads={[
-                  "Instrument",
-                  "Owner",
-                  "Qty",
-                  "Entry",
-                  "Stop",
-                  "Target",
-                  "Current R / Max R",
-                  "Protection / latest decision",
-                ]}
-                rows={session.positions.map((p: Json) => [
-                  p.exposure.symbol,
-                  p.candidate.strategy_name,
-                  p.exposure.quantity,
-                  price(p.exposure.entry),
-                  price(p.exposure.stop),
-                  price(p.trade_management?.target ?? p.candidate.target),
-                  `${p.trade_management?.current_r?.toFixed(2) ?? "--"} / ${p.trade_management?.max_r?.toFixed(2) ?? "--"}`,
-                  <>
-                    <span>
-                      {p.trade_management?.decisions?.at(-1)?.reason ||
-                        p.pending_exit ||
-                        "Holding / no exit condition triggered"}
-                    </span>
-                    <details>
-                      <summary>Management evidence</summary>
-                      <pre>
-                        {JSON.stringify(p.hold_evidence || {}, null, 2)}
-                      </pre>
-                      <pre>{JSON.stringify(p.analytics || {}, null, 2)}</pre>
-                    </details>
-                  </>,
-                ])}
-              />
+              {session.positions.length ? (
+                <Table
+                  heads={[
+                    "Instrument",
+                    "Owner",
+                    "Qty",
+                    "Entry",
+                    "Stop",
+                    "Target",
+                    "Open P&L / gross",
+                    "Current R / Max R",
+                    "Protection / latest decision",
+                  ]}
+                  rows={session.positions.map((p: Json) => [
+                    p.exposure.symbol,
+                    p.candidate.strategy_name,
+                    p.exposure.quantity,
+                    price(p.exposure.entry),
+                    price(p.exposure.stop),
+                    price(p.trade_management?.target ?? p.candidate.target),
+                    money(p.trade_management?.marked_unrealized_gross),
+                    `${p.trade_management?.current_r?.toFixed(2) ?? "--"} / ${p.trade_management?.max_r?.toFixed(2) ?? "--"}`,
+                    <>
+                      <span>
+                        {p.trade_management?.decisions?.at(-1)?.reason ||
+                          p.pending_exit ||
+                          "Holding / no exit condition triggered"}
+                      </span>
+                      <details>
+                        <summary>Management evidence</summary>
+                        <pre>
+                          {JSON.stringify(p.hold_evidence || {}, null, 2)}
+                        </pre>
+                        <pre>{JSON.stringify(p.analytics || {}, null, 2)}</pre>
+                      </details>
+                    </>,
+                  ])}
+                />
+              ) : (
+                <Notice>No open simulated positions.</Notice>
+              )}
             </section>
             <section>
               <h2>Strategy activity</h2>
@@ -616,7 +649,7 @@ function MarketReplayPage(_: PageProps) {
             </section>
           </>
         ))}
-    </>
+    </div>
   );
 }
 function TickImport({
