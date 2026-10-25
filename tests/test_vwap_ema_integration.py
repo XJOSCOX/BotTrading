@@ -47,6 +47,21 @@ class IntegrationTests(unittest.TestCase):
             save_vwap_ema_config(dict(reward_risk=-1))
         self.assertEqual(read_vwap_ema_config(), config)
 
+    def test_offline_monitor_persists_waiting_status_without_broker_calls(self):
+        from goxtrade.bot.bot_monitor import monitor_once, read_status, SYMBOLS
+        from goxtrade.market.market_session import market_session
+        session = market_session(pd.Timestamp("2026-10-01T15:00:00Z").to_pydatetime())
+        with patch("goxtrade.execution.projectx_client.post", side_effect=AssertionError("Broker requests forbidden")) as post, \
+                patch("goxtrade.bot.bot_monitor.market_session", return_value=session):
+            monitor_once()
+            post.assert_not_called()
+        for symbol in SYMBOLS:
+            result = read_status()[(symbol, "VWAP EMA Cross")]
+            self.assertEqual(result["signal"]["signal"], "WAIT")
+            self.assertEqual(result["timeframe"], "3 min")
+            self.assertFalse(result["feed_fresh"])
+            self.assertIn("valid current trade price", result["indicator_snapshot"]["reason"])
+
     def test_leader_is_blocked_even_with_explicit_practice_permission(self):
         save_vwap_ema_config(replace(VwapEmaConfig(), practice_enabled=True))
         signal = self.candidate()

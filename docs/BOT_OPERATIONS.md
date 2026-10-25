@@ -20,7 +20,7 @@ next retry. An invalid Topstep key still prevents fresh quotes and entries.
 - Leader defaults: 3 MNQ / 3 MES, MYM disabled. Enable MYM trading and Save leader settings explicitly opts into MYM with a selected quantity of 1-4. Disabling blocks new MYM entries without stopping exit management. Starting its monitor leaves entries paused; trading requires the explicit Start control and account/copier confirmations.
 - Topstep copier configuration must be verified by the user. The app cannot verify copying or guarantee follower exits. Loss locks apply separately to each account, not the combined copier group.
 - Orders, fills, controls, broker health and loss-lock state are account-isolated. Enabled execution or unresolved jobs on the other account block activation. Account-view selectors never arm execution.
-- Monitor remains watch-only for all three indices and both strategies. Controls affect new Practice entries, not management of existing positions.
+- Monitor watches all three indices and six strategies. Account controls govern new entries, not management of existing positions. VWAP EMA Cross has an additional explicit Practice permission and is prohibited for Leader execution.
 - MYM additionally requires its existing explicit activation flag. Default execution remains MNQ/MES.
 - The persistent $500 account-loss lock and maximum four contracts per symbol remain in force.
 - Up to three bot-owned micro positions, one per MNQ/MES/MYM. When flat, the first entry uses the selected size (1-4); with exposure open, new entries on other symbols are capped at one contract each. No additions on the same symbol, no automatic size increases, and no automatic reversal. The opposite-direction exposure guard and account-wide cooldown after any confirmed close remain in force.
@@ -45,7 +45,7 @@ Trade review combines existing order-state records and new signal/decision event
 
 New setups use the shared Stop & trailing candles setting (5 minutes by default; 5/10/15 available). Initial stops use the more conservative of strategy invalidation and the last three completed management candles' swing, plus 0.5 ATR(14), with at least one ATR of distance. Fifteen contiguous completed management candles are required; missing buckets block a new setup. Trailing and two-confirmation structure exits use the same frozen timeframe. Price crossing a protective stop is still checked tick-by-tick. Existing signals without a saved timeframe retain their original one-minute management; settings never widen their stops. Wider initial stops increase dollar risk at unchanged quantity. The separate account loss lock is unchanged.
 
-All new strategy signals use completed, gap-checked 15-minute candles: CRT range/sweep, Reversal RSI14, ORB confirmation, VWAP retests and EMA20/50/RSI14. The forming candle contributes no confirmation; live quotes remain available for entry validity and exits. Reversal extreme duration is counted in minutes (each completed 15-minute bar represents 15 minutes). Existing active signals retain their saved levels and exit rules.
+The five established strategies use completed, gap-checked 15-minute candles: CRT range/sweep, Reversal RSI14, ORB confirmation, VWAP retests and EMA20/50/RSI14. The forming candle contributes no confirmation; live quotes remain available for entry validity and exits. Reversal extreme duration is counted in minutes (each completed 15-minute bar represents 15 minutes). Existing active signals retain their saved levels and exit rules. VWAP EMA Cross declares its own signal timeframe, default three minutes, and explicitly classified optional intrabar modes.
 
 The monitor evaluates CRT, Reversal, ORB, VWAP Reclaim and EMA Pullback for NQ, ES and YM. New strategies are not automatically selected for account orders. Enable them separately in Leader settings or Practice execution controls. Existing account selections, micro sizing, exposure checks, cooldowns and the account loss lock still apply.
 
@@ -53,7 +53,7 @@ The monitor evaluates CRT, Reversal, ORB, VWAP Reclaim and EMA Pullback for NQ, 
 - VWAP Reclaim: 15-minute HLC3 weighted by summed trade volume, anchored at 17:00 CT. Requires complete minute coverage from the anchor and at least 52 completed 15-minute session candles (13 hours). EMA20/50 alignment and EMA50 slope must agree. A completed candle must retest VWAP within max(one tick, 0.15 ATR), close away from it with a directional body, and follow a close on the same side. A preceding cross identifies a reclaim; otherwise this is rejection. Missing session data or invalid volume yields WAIT.
 - EMA Pullback: at least 60 consecutive completed 15-minute candles (15 hours). EMA20/50 alignment and EMA50 slope establish direction. One of the previous three candles must touch EMA20 or EMA50 within max(one tick, 0.15 ATR). RSI14 must cross 50 in the trend direction, with the confirmation candle closing beyond the previous high/low and EMA20, and a directional body.
 
-Signals use completed candles and a fresh live price; forming candles cannot confirm entries. Stops start beyond the setup's candle/range invalidation and use the existing ATR buffer and adaptive exit manager. VWAP/EMA reference targets are twice the initial unbuffered risk; reference targets do not force closure. These are deterministic initial rules, not evidence of profitability. Replay currently supports CRT and Reversal only.
+These five strategies use completed candles and a fresh live price; forming candles cannot confirm their entries. Stops start beyond the setup's candle/range invalidation and use the existing ATR buffer and adaptive exit manager. VWAP/EMA reference targets are twice the initial unbuffered risk; reference targets do not force closure. These are deterministic initial rules, not evidence of profitability. The legacy Replay lab supports CRT and Reversal; the separate historical Backtest workspace has adapters for all six strategy definitions.
 
 Method references: [VWAP](https://www.tradingview.com/support/solutions/43000502018-volume-weighted-average-price-vwap/) and [EMA](https://www.fidelity.com/learning-center/trading-investing/technical-analysis/technical-indicator-guide/ema).
 
@@ -83,7 +83,7 @@ Candidates and filters are research-only. No promotion control is provided. The 
 
 ## Multi-Timeframe Entry Confirmation
 
-New entries require a current 15m setup, a completed 5m candle whose body and
+New entries for the five established strategies require a current 15m setup, a completed 5m candle whose body and
 close-to-close movement support the signal, and a new completed 1m candle after
 the setup close. The 1m candle must close beyond the prior candle's high/low, in
 the directional outer third of its range, with live price still beyond that close.
@@ -133,6 +133,22 @@ submission. Block reasons are recorded in the existing alert decision history.
 Regular-session sizing, strategy stops, exit management, manual pause and account
 loss locks remain unchanged. These starting thresholds require forward testing;
 they do not establish a higher win rate or guarantee profitability.
+
+## VWAP EMA Cross Workspace
+
+See [VWAP_EMA_CROSS.md](VWAP_EMA_CROSS.md) for its independent indicator-event entry
+policy, session coverage, settings, risk modes and research assumptions. Monitoring
+starts with CONFIRMED three-minute signals. Practice and forward-paper are disabled
+by default; Leader eligibility is denied at settings, claim and submission boundaries.
+The account-level $500 lock, exposure, schedule, stale-data, volatility, overnight
+trend/spread and reconciliation gates still apply. The legacy 15m/5m/1m trigger is
+not silently applied to this separate indicator event; its original crossover must
+be revalidated within its saved entry window (90 seconds by default).
+
+Do not confuse its configurable session research filter with execution permissions.
+Disabling research filters cannot bypass account safeguards. Opposite crosses do
+not reverse positions. Settings changes apply to new setups; active positions keep
+their frozen initial levels and management configuration.
 
 ## Delayed Monitoring Diagnosis
 

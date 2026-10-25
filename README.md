@@ -36,6 +36,7 @@ goxtrade/
   data/                 Storage and price-history code
   execution/            Broker API, orders, accounts, and reconciliation
   market/               Sessions and execution schedule
+  research/             Historical and forward-paper simulations and comparison
   runtime/              Launchers, process control, and live feed
   strategies/           Strategies, confirmation, stops, and entry guards
   ui/                   Pages, shared styles, and chart assets
@@ -51,9 +52,28 @@ Run commands from the project root. Background workers and diagnostics use packa
 
 - Dashboard: executed-trade statistics and connection settings.
 - Market: live candlesticks, volume, RSI, and multi-chart views.
-- Bot: CRT, Reversal, ORB, VWAP Reclaim, and EMA Pullback monitoring.
+- Bot: CRT, Reversal, ORB, VWAP Reclaim, EMA Pullback, and VWAP EMA Cross monitoring.
 - Live: separately controlled Practice and Leader execution, micro sizing, reconciliation, and account loss locks.
 
 See [BOT_OPERATIONS.md](docs/BOT_OPERATIONS.md) for strategy rules, safeguards, and limitations. New setups support 5/10/15-minute stop management. Automated trading can lose money; test in Practice before enabling a Leader account.
+
+## VWAP EMA Cross
+
+The new strategy defaults to completed **3-minute** candles, **EMA9 Close**, and
+**OHLC4 session VWAP weighted by actual traded volume**, anchored at 17:00 Chicago.
+Existing five strategies retain their 15-minute signal rules. The strategy registry
+declares independent timeframes, data requirements, canonical IDs and execution eligibility.
+
+Open **Bot > VWAP EMA Cross** for status/chart, validated Parameters, historical
+Backtest and source-separated Comparison. Monitoring defaults on; forward-paper and
+broker Practice default off. Saving settings never arms an account. **Leader execution
+is prohibited for this strategy**, including REALTIME and experimental ANTICIPATORY modes.
+
+Historical research accepts actual timezone-aware minute OHLCV CSV or saved
+contract-specific data. Intrabar modes additionally require ordered actual trade
+observations; no intrabar signals are invented from OHLC. Comparisons keep historical,
+forward-paper, broker Practice and Leader P&L separate. No verified profitability is
+claimed. Read [VWAP_EMA_CROSS.md](docs/VWAP_EMA_CROSS.md) for formulas, enabling Practice,
+data coverage, risk snapshots, schema additions, fill assumptions and known limitations.
 
 Run offline unit tests with `python -m unittest discover`. Browser checks live in `tests/` and require a local app and Playwright with Edge; run them as modules, such as `python -m tests.test_leader_browser`. They do not submit orders. `python -m scripts.practice_smoke_test` places broker orders; review it before use.
