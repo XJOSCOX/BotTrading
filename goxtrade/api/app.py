@@ -11,7 +11,7 @@ from typing import Annotated, Literal
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
 
@@ -188,18 +188,26 @@ def create_app():
         app.state.sockets += 1
         await socket.accept()
         previous = None
+        pending_snapshot = None
         try:
             while stored[1] >= time.monotonic():
-                current = await asyncio.to_thread(state.CACHE.get)
-                if current is not previous:
-                    await asyncio.wait_for(socket.send_json(dict(type="snapshot", data=current)), timeout=5)
-                    previous = current
                 prices = await asyncio.to_thread(state.ticks)
                 await asyncio.wait_for(socket.send_json(dict(type="ticks", data=prices)), timeout=5)
-                await asyncio.sleep(1)
+                # Heavy attribution snapshots never hold up the fresh-price channel.
+                if pending_snapshot is None:
+                    pending_snapshot = asyncio.create_task(asyncio.to_thread(state.CACHE.get))
+                if pending_snapshot.done():
+                    current = pending_snapshot.result()
+                    pending_snapshot = None
+                    if current is not previous:
+                        await asyncio.wait_for(socket.send_json(dict(type="snapshot", data=current)), timeout=5)
+                        previous = current
+                await asyncio.sleep(.25)
         except (WebSocketDisconnect, RuntimeError, asyncio.TimeoutError):
             pass
         finally:
+            if pending_snapshot is not None:
+                pending_snapshot.cancel()
             app.state.sockets -= 1
             try:
                 await socket.close()
@@ -249,7 +257,7 @@ def create_app():
     def previous_box_settings(values: dict):
         from goxtrade.strategies.strategy_settings import save_previous_day_box_config
         save_previous_day_box_config(values)
-        return dict(message="Previous Day Box settings saved. No account armed; Leader remains prohibited.")
+        return dict(message="Previous Day Box settings saved. Account authorization remains independent; no account armed.")
 
     @app.get("/api/previous-day-box/{symbol}", dependencies=[Depends(session)])
     def previous_box_view(symbol: Literal["NQ=F","ES=F","YM=F","MNQ=F","MES=F","MYM=F"]):
@@ -345,6 +353,62 @@ def create_app():
     def manager_view(profile: Profile = "practice"):
         from goxtrade.execution.manager_service import overview
         return state.clean(overview(profile))
+
+    @app.get("/api/validation-lab", dependencies=[Depends(session)])
+    def validation_lab_view():
+        from goxtrade.research.lab_service import overview
+        return state.clean(overview())
+
+    @app.post("/api/validation-lab/history", dependencies=[Depends(mutation)])
+    def validation_lab_history(body: dict):
+        from goxtrade.research.lab_service import history
+        return dict(message="Read-only historical download requested",job=history(body))
+
+    @app.post("/api/validation-lab/import", dependencies=[Depends(mutation)])
+    def validation_lab_import(body: dict):
+        from goxtrade.research.lab_service import import_csv
+        return state.clean(dict(message="Research dataset imported; quality gates apply",dataset=import_csv(body)))
+
+    @app.post("/api/validation-lab/import-saved", dependencies=[Depends(mutation)])
+    def validation_lab_import_saved(body: dict):
+        from goxtrade.research.lab_service import import_saved
+        return state.clean(dict(message="Canonical history snapshotted for isolated research",dataset=import_saved(body)))
+
+    @app.post("/api/validation-lab/run", dependencies=[Depends(mutation)])
+    def validation_lab_run(body: dict):
+        from goxtrade.research.lab_service import validation
+        return dict(message="Historical research queued; no broker execution",job=validation(body))
+
+    @app.post("/api/validation-lab/jobs/{identifier}/{action}", dependencies=[Depends(mutation)])
+    def validation_lab_job(identifier: str, action: Literal["resume","cancel"]):
+        from goxtrade.research.lab_jobs import start,cancel
+        return dict(message="Research job "+action,job=start(identifier) if action=="resume" else cancel(identifier))
+
+    @app.get("/api/validation-lab/datasets/{identifier}/export", dependencies=[Depends(session)])
+    def validation_lab_dataset_export(identifier: str):
+        from goxtrade.research.lab_reports import export_dataset
+        from goxtrade.data.lab_store import get
+        get("lab_datasets",identifier)
+        return StreamingResponse(export_dataset(identifier),media_type="text/csv",headers={"Content-Disposition":"attachment; filename=historical-minutes.csv"})
+
+    @app.get("/api/validation-lab/runs/{identifier}", dependencies=[Depends(session)])
+    def validation_lab_result(identifier: str):
+        from goxtrade.data.lab_store import get
+        return state.clean(get("lab_runs",identifier))
+
+    @app.get("/api/validation-lab/runs/{identifier}/export", dependencies=[Depends(session)])
+    def validation_lab_report(identifier: str, format: Literal["csv","html"]="html"):
+        from goxtrade.data.lab_store import get
+        from goxtrade.research.lab_reports import trades_csv,html_report
+        run = get("lab_runs",identifier)
+        return Response(html_report(run) if format=="html" else trades_csv(run),media_type="text/html" if format=="html" else "text/csv",
+                        headers={"Content-Disposition":"attachment; filename=validation-report."+format,"Content-Security-Policy":"default-src 'none'; style-src 'unsafe-inline'"})
+
+    @app.get("/api/validation-lab/runs/{identifier}/trades/{index}", dependencies=[Depends(session)])
+    def validation_lab_trade(identifier: str,index: int):
+        from goxtrade.data.lab_store import get
+        from goxtrade.research.validation_lab import trade_window
+        return state.clean(trade_window(get("lab_runs",identifier),index))
 
     @app.get("/api/trade-management", dependencies=[Depends(session)])
     def trade_management_view(profile: Profile = "practice"):

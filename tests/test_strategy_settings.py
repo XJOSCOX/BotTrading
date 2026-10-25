@@ -24,8 +24,8 @@ class StrategySettingsTests(unittest.TestCase):
             self.assertEqual(bot_controls.read("leader")["strategies"],["CRT","Reversal"])
             bot_controls.save(["MNQ","MES"],list(LEGACY_STRATEGIES),5,profile="leader")
             self.assertEqual(bot_controls.read("leader")["strategies"],list(LEGACY_STRATEGIES))
-            with self.assertRaises(ValueError):
-                bot_controls.save(["MNQ"],list(STRATEGIES),5,profile="leader")
+            bot_controls.save(["MNQ"],list(STRATEGIES),5,profile="leader")
+            self.assertEqual(bot_controls.read("leader")["strategies"],list(STRATEGIES))
             self.assertEqual(bot_controls.read("practice")["strategies"],["CRT","Reversal"])
 
     def test_shared_orb_window_validation_and_persistence(self):

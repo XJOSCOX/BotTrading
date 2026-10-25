@@ -11,12 +11,15 @@ from tests.previous_day_box_fixtures import NOW,CONTRACT,candidate,history
 
 
 class BoxSafetyTests(unittest.TestCase):
-    def test_default_monitor_only_and_leader_always_prohibited(self):
+    def test_same_capabilities_with_independent_account_permission(self):
         config=PreviousDayBoxConfig()
         self.assertTrue(config.monitor_enabled);self.assertFalse(config.paper_enabled);self.assertFalse(config.practice_enabled)
         self.assertIn("Leader",execution_block(candidate(),"leader"))
         with patch("goxtrade.strategies.strategy_settings.read_previous_day_box_config",return_value=replace(config,practice_enabled=True)):
             self.assertIn("Leader",execution_block(candidate(),"leader"))
+        with patch("goxtrade.strategies.strategy_settings.read_previous_day_box_config",return_value=replace(config,leader_enabled=True)):
+            self.assertIsNone(execution_block(candidate(),"leader"))
+            self.assertIn("Practice",execution_block(candidate(),"practice"))
 
     def test_practice_off_and_forged_envelopes_blocked(self):
         signal=candidate()

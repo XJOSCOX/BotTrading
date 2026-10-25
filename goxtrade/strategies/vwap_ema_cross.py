@@ -74,7 +74,7 @@ def evaluate_vwap_ema_cross(minutes, price, now, config=None, previous=None, seq
                 signal_minutes=config.signal_minutes, entry_mode=config.entry_mode,
                 entry_policy="indicator-event-v1", entry_window_seconds=config.entry_window_seconds,
                 config_snapshot=config.to_dict(), config_fingerprint=config.fingerprint,
-                account_eligibility={"leader": False, "practice": config.practice_enabled},
+                account_eligibility={"leader": config.leader_enabled, "practice": config.practice_enabled},
                 detected_at=now.isoformat(), detection_sequence=sequence, filter_results={})
 
     def waiting(reason, frame=None):

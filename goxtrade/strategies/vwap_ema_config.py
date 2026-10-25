@@ -15,6 +15,7 @@ SOURCES = ("close", "open", "high", "low", "hlc3", "ohlc4")
 class VwapEmaConfig:
     monitor_enabled: bool = True
     practice_enabled: bool = False
+    leader_enabled: bool = False
     paper_enabled: bool = False
     paper_quantity: int = 1
     paper_commission_per_side: float = 0.
@@ -78,6 +79,9 @@ class VwapEmaConfig:
 
     @property
     def fingerprint(self):
+        values = self.to_dict()
+        if not values.pop("leader_enabled"):
+            return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:16]
         return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True).encode()).hexdigest()[:16]
 
     @classmethod

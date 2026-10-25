@@ -35,12 +35,12 @@ SPECS = (
     StrategySpec("vwap_ema_cross", "VWAP EMA Cross", signal_minutes=3,
                  indicators=("ohlc4_session_vwap", "ema9_close"), lookback_bars=45,
                  modes=("CONFIRMED", "REALTIME", "ANTICIPATORY"), cooldown_minutes=0,
-                 execution_profiles=("practice",), risk_policy="strategy-snapshot-v1",
+                 execution_profiles=("practice", "leader"), risk_policy="strategy-snapshot-v1",
                  required_data=("complete_session_trade_ohlcv", "fresh_trade", "broker_reconciliation"),
                  entry_policy="indicator-event-v1", runtime_adapter="goxtrade.strategies.vwap_ema_runtime", category="momentum"),
     StrategySpec("previous_day_box", "Previous Day Box Reversal", signal_minutes=15,
                  indicators=("previous_session_box", "rejection", "sweep", "confirmed_structure"),
-                 lookback_bars=1440, execution_profiles=("practice",), risk_policy="previous-box-snapshot-v1",
+                 lookback_bars=1440, execution_profiles=("practice", "leader"), risk_policy="previous-box-snapshot-v1",
                  required_data=("complete_previous_contract_session", "completed_15m", "fresh_trade", "broker_reconciliation"),
                  entry_policy="previous-box-v1", runtime_adapter="goxtrade.strategies.previous_day_box_runtime"),
 )
@@ -102,8 +102,8 @@ def execution_block(signal, profile):
         from goxtrade.strategies.strategy_settings import read_previous_day_box_config
         from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
         current = read_previous_day_box_config()
-        if not current.practice_enabled or not current.monitor_enabled:
-            return "Previous Day Box Practice execution has not been explicitly enabled"
+        if not getattr(current, profile+"_enabled", False) or not current.monitor_enabled:
+            return "Previous Day Box "+profile.title()+" execution has not been explicitly enabled"
         if (signal.get("reference_symbol") or signal.get("symbol")) and (signal.get("reference_symbol") or signal.get("symbol")) not in current.enabled_symbols:
             return "Previous Day Box symbol is disabled"
         if "entry" in signal or "alert_id" in signal:
@@ -144,8 +144,8 @@ def execution_block(signal, profile):
                 return "Missing or inconsistent crossover consumption identity"
         from goxtrade.strategies.strategy_settings import read_vwap_ema_config
         config = read_vwap_ema_config()
-        if not config.practice_enabled:
-            return "VWAP EMA Cross Practice execution has not been explicitly enabled"
+        if not getattr(config, profile+"_enabled", False):
+            return "VWAP EMA Cross "+profile.title()+" execution has not been explicitly enabled"
         aliases = {"MNQ": "NQ=F", "MES": "ES=F", "MYM": "YM=F",
                    "MNQ=F": "NQ=F", "MES=F": "ES=F", "MYM=F": "YM=F"}
         symbol = aliases.get(signal.get("symbol"), signal.get("symbol"))

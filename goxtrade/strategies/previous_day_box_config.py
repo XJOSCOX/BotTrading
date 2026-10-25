@@ -10,6 +10,7 @@ import math
 class PreviousDayBoxConfig:
     monitor_enabled: bool = True
     practice_enabled: bool = False
+    leader_enabled: bool = False
     paper_enabled: bool = False
     session: str = "futures"
     custom_open: str = "17:00"
@@ -89,6 +90,9 @@ class PreviousDayBoxConfig:
 
     @property
     def fingerprint(self):
+        values = self.to_dict()
+        if not values.pop("leader_enabled"):
+            return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()[:16]
         return hashlib.sha256(json.dumps(self.to_dict(), sort_keys=True).encode()).hexdigest()[:16]
 
     @classmethod

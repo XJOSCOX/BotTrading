@@ -34,6 +34,7 @@ import {
 import { Badge, Notice } from "./components";
 import { StrategyManager } from "./pages/StrategyManager";
 import { TradeManagement } from "./pages/TradeManagement";
+import { ValidationLab } from "./pages/ValidationLab";
 
 const navigation = [
   {
@@ -99,6 +100,14 @@ const navigation = [
     group: "Trading",
     detail: "Historical simulation, separate from broker results",
     component: Research,
+  },
+  {
+    name: "Strategy Validation Lab",
+    id: "validation-lab",
+    icon: FlaskConical,
+    group: "Trading",
+    detail: "Contract history, data quality and reproducible strategy research",
+    component: ValidationLab,
   },
   {
     name: "Accounts",

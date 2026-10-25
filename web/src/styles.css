@@ -626,6 +626,72 @@ main {
   white-space: nowrap;
   overflow-wrap: normal;
 }
+
+.validation-lab .table-scroll table {
+  min-width: max-content;
+}
+.validation-lab .table-scroll td {
+  max-width: 420px;
+  overflow-wrap: anywhere;
+}
+.validation-lab .form-actions {
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.validation-lab details {
+  margin: 24px 0;
+}
+.validation-lab summary {
+  cursor: pointer;
+  padding: 12px 0;
+}
+.validation-lab form {
+  margin: 20px 0 32px;
+}
+.validation-lab .metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 16px;
+  margin: 24px 0;
+}
+.validation-lab .metric {
+  min-width: 0;
+}
+.lab-breakdowns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.lab-breakdowns > section {
+  min-width: 0;
+}
+.lab-plots {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+.lab-plot {
+  margin: 20px 0;
+  min-width: 0;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+.lab-plot svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+@media (max-width: 760px) {
+  .validation-lab .metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .lab-breakdowns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .lab-plots {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
 .empty {
   display: flex;
   flex-direction: column;

@@ -11,7 +11,7 @@ OPTIONS = dict(entry_mode=MODES, signal_minutes=(1, 3, 5, 10, 15, 30, 60),
                stop_method=("atr", "swing", "fixed", "buffered"),
                management_method=("fixed", "trailing", "breakeven", "adaptive"),
                management_minutes=(1, 3, 5, 10, 15, 30))
-LABELS = dict(practice_enabled="Allow VWAP EMA Cross in Practice", paper_enabled="Enable forward-paper simulation",
+LABELS = dict(practice_enabled="Allow VWAP EMA Cross in Practice", leader_enabled="Allow VWAP EMA Cross in Leader", paper_enabled="Enable forward-paper simulation",
               monitor_enabled="Monitor VWAP EMA Cross", signal_minutes="Signal candles (minutes)",
               custom_anchor="Custom anchor (HH:MM)", timezone="Session timezone (IANA)",
               paper_commission_per_side="Paper commission per contract / side ($)",
@@ -56,7 +56,8 @@ def configuration(config):
             values["enabled_symbols"] = input_field("enabled_symbols", config.enabled_symbols)
         with b:
             values["practice_enabled"] = input_field("practice_enabled", config.practice_enabled)
-            st.caption("Leader: prohibited. Practice also requires account arming and strategy selection in Control Center.")
+            values["leader_enabled"] = input_field("leader_enabled", config.leader_enabled)
+            st.caption("Same strategy capabilities. Each account requires its own opt-in, strategy selection and Start authorization.")
         for title, names in GROUPS.items():
             with st.expander(title, expanded=title == "Indicators & timing"):
                 columns = st.columns(3)
@@ -125,7 +126,7 @@ def live_detail(config):
 
 def render():
     st.subheader("VWAP EMA Cross")
-    st.caption("Monitoring / Practice opt-in / Leader prohibited")
+    st.caption("Shared monitoring / Independent Practice and Leader authorization")
     from goxtrade.market.calendar_guard import restriction
     calendar = restriction(pd.Timestamp.now(tz="UTC"), required=True)
     st.caption("Calendar: "+calendar["reason"])

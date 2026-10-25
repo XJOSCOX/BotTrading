@@ -110,7 +110,10 @@ def render_bot() -> None:
     with st.container(key="bot_header_controls"):
         account_column, _ = st.columns([1, 3])
         account_profile = account_column.selectbox("Account view",["practice","leader"],format_func=str.title,key="bot_account_view",help="Changes the displayed account only; does not start or switch execution.")
-    monitor, manager, protection, operations, research, vwap, box, inbox = st.tabs(["Monitor", "Strategy Manager", "Trade Management", "Trade review", "Replay lab", "VWAP EMA Cross", "Previous Day Box", "Notifications"])
+    monitor, manager, protection, operations, research, lab, vwap, box, inbox = st.tabs(["Monitor", "Strategy Manager", "Trade Management", "Trade review", "Replay lab", "Strategy Validation Lab", "VWAP EMA Cross", "Previous Day Box", "Notifications"])
+    with lab:
+        from goxtrade.ui.bot.validation_lab_panel import render as render_lab
+        render_lab()
     with protection:
         from goxtrade.ui.bot.trade_management_panel import render as render_protection
         render_protection(account_profile)

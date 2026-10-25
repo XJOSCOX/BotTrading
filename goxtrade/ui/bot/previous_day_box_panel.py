@@ -11,7 +11,7 @@ def render():
     from goxtrade.ui.market.live_chart_component import _chart
     config = read_previous_day_box_config()
     st.subheader("Previous Day Box Reversal")
-    st.caption("Completed 15-minute candles / America/Chicago / Leader prohibited / No account armed by saving")
+    st.caption("Completed 15-minute candles / America/Chicago / Independent account authorization / No account armed by saving")
     symbol = st.selectbox("Box instrument",["NQ=F","ES=F","YM=F","MNQ=F","MES=F","MYM=F"],key="box_symbol")
     parameters, monitoring, research = st.tabs(["Parameters","Box & confirmation","Historical research"])
     with parameters:
@@ -24,7 +24,7 @@ def render():
                 except (ValueError,TypeError) as error:
                     st.error(str(error))
                 else:
-                    st.success("Saved. Account arming, existing positions and Leader prohibition are unchanged.")
+                    st.success("Saved. Account arming and existing positions are unchanged.")
     with monitoring:
         data = view(symbol)
         signal,box = data["signal"],data["box"]

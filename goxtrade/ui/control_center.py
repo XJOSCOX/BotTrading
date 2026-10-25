@@ -46,7 +46,7 @@ def render():
             st.metric("Maximum / symbol", "4 micro contracts")
             st.caption("Additional symbols: one contract. Overnight: one position, one contract, at least 15 minutes after close.")
             st.caption("Stops follow strategy structure. Open positions retain their frozen management rules.")
-            st.warning("VWAP EMA Cross and Previous Day Box are visible in both profiles, but Leader execution remains restricted. Practice opt-in does not authorize Leader.")
+            st.warning("Same strategies and settings in both profiles. Each account retains independent opt-in, Start/Pause and loss locks.")
     with timing:
         left, right = st.columns([1.6, 1], gap="large")
         with left:

@@ -84,7 +84,9 @@ def snapshot():
         events = []
         if "bot_events" in tables:
             events = [dict(row) for row in conn.execute("SELECT * FROM bot_events ORDER BY id DESC LIMIT 100")]
-    return clean(dict(profiles=profiles, monitor=monitor, alerts=alerts, events=events))
+    from goxtrade.data.lab_store import progress_revision
+    research_revision = progress_revision()
+    return clean(dict(profiles=profiles, monitor=monitor, alerts=alerts, events=events,research_revision=research_revision))
 
 
 class SnapshotCache:
@@ -95,7 +97,7 @@ class SnapshotCache:
 
     def get(self):
         with self.lock:
-            if self.value is None or time.monotonic()-self.updated > 3:
+            if self.value is None or time.monotonic()-self.updated > 1:
                 self.value = snapshot()
                 self.updated = time.monotonic()
             return self.value

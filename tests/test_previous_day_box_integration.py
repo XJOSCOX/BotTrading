@@ -25,7 +25,7 @@ class BoxIntegrationTests(unittest.TestCase):
     def test_registry_and_legacy_definitions_preserved(self):
         self.assertEqual(LEGACY_STRATEGIES,("CRT","Reversal","ORB","VWAP Reclaim","EMA Pullback"))
         self.assertEqual(strategy_spec("vwap_ema_cross").signal_minutes,3)
-        self.assertEqual(strategy_spec("previous_day_box").execution_profiles,("practice",))
+        self.assertEqual(strategy_spec("previous_day_box").execution_profiles,("practice","leader"))
 
     def test_persisted_settings_do_not_arm_or_change_other_strategy(self):
         from goxtrade.strategies.strategy_settings import read_vwap_ema_config

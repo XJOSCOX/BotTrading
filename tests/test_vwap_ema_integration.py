@@ -62,18 +62,20 @@ class IntegrationTests(unittest.TestCase):
             self.assertFalse(result["feed_fresh"])
             self.assertIn("valid current trade price", result["indicator_snapshot"]["reason"])
 
-    def test_leader_is_blocked_even_with_explicit_practice_permission(self):
+    def test_leader_has_same_capabilities_but_independent_permission(self):
         save_vwap_ema_config(replace(VwapEmaConfig(), practice_enabled=True))
         signal = self.candidate()
         self.assertIsNone(execution_block(signal, "practice"))
-        self.assertIn("disabled", execution_block(signal, "leader"))
+        self.assertIn("explicitly enabled", execution_block(signal, "leader"))
         with patch.object(practice_executor, "PROFILE", "leader"), patch.object(practice_executor, "post") as post:
             self.assertFalse(practice_executor.claim(dict(strategy="VWAP EMA Cross", entry_mode="CONFIRMED")))
             with self.assertRaises(ValueError):
                 practice_executor.build_order(signal, {}, 1)
             post.assert_not_called()
-        with self.assertRaises(ValueError):
-            bot_controls.save(["MNQ"], ["VWAP EMA Cross"], 5, profile="leader")
+        bot_controls.save(["MNQ"], ["VWAP EMA Cross"], 5, profile="leader")
+        save_vwap_ema_config(dict(leader_enabled=True, practice_enabled=False))
+        self.assertIsNone(execution_block(signal, "leader"))
+        self.assertIn("Practice",execution_block(signal,"practice"))
 
     def test_disabled_symbol_cannot_claim_by_using_micro_alias(self):
         save_vwap_ema_config(dict(practice_enabled=True, enabled_symbols=["ES=F"]))

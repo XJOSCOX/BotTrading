@@ -53,7 +53,7 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
     # Anticipation is explicitly classified; the lifecycle's direction field remains LONG/SHORT.
     if candidate.get("raw_signal", "").startswith("ANTICIPATED_"):
         candidate["signal"] = candidate["direction"]
-        candidate["execution_direction_mapping"] = "Explicit Practice-only mapping from " + candidate["raw_signal"]
+        candidate["execution_direction_mapping"] = "Explicit account-authorized mapping from " + candidate["raw_signal"]
     management_times = pd.to_datetime(minutes["time"], utc=True, errors="coerce")
     management_source = minutes.loc[management_times+pd.Timedelta(minutes=1) <= now].copy()
     management_source["time"] = management_times.loc[management_source.index]

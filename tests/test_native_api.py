@@ -74,11 +74,12 @@ class NativeApiTests(unittest.TestCase):
             self.assertEqual(self.post("/api/credentials", dict(username="test",api_key="test-key")).status_code, 400)
             save.assert_not_called()
 
-    def test_policy_refuses_leader_indicator_and_invalid_contract_quantity(self):
+    def test_policy_accepts_leader_indicator_selection_but_refuses_invalid_quantity(self):
         policy = dict(strategies=["VWAP EMA Cross"], quantities=dict(MNQ=2,MES=2,MYM=2), cooldown=5, enable_mym=False)
         with patch("goxtrade.execution.leader_execution.command") as command:
-            self.assertEqual(self.post("/api/policy/leader", policy).status_code, 400)
-            command.assert_not_called()
+            self.assertEqual(self.post("/api/policy/leader", policy).status_code, 200)
+            command.assert_called_once()
+            self.assertEqual(command.call_args.args[0],"configure")
         for quantity in (5, True, 2.5):
             policy["quantities"]["MNQ"] = quantity
             self.assertEqual(self.post("/api/policy/practice", policy).status_code, 422)
@@ -149,7 +150,7 @@ class NativeApiTests(unittest.TestCase):
                 self.assertEqual((saved["monitor_enabled"],saved["practice_enabled"],saved["signal_minutes"],saved["ema_length"]),(enabled,enabled,5,12))
             arm.assert_not_called()
 
-    def test_box_settings_round_trip_never_arms_and_leader_is_rejected(self):
+    def test_box_settings_round_trip_never_arms_and_leader_is_selectable(self):
         with patch.object(practice_executor,"arm") as arm,patch("goxtrade.execution.leader_execution.command") as leader:
             response=self.post("/api/previous-day-box",dict(session="rth",buy_percent=20,sell_percent=80,practice_enabled=True))
             self.assertEqual(response.status_code,200,response.text)
@@ -157,8 +158,11 @@ class NativeApiTests(unittest.TestCase):
             self.assertEqual((saved["session"],saved["buy_percent"],saved["sell_percent"]),("rth",20,80))
             self.assertFalse(saved["paper_enabled"])
             response=self.post("/api/policy/leader",dict(strategies=["Previous Day Box Reversal"],quantities=dict(MNQ=3,MES=3,MYM=3),cooldown=5,enable_mym=False))
-            self.assertEqual(response.status_code,400)
-            arm.assert_not_called();leader.assert_not_called()
+            self.assertEqual(response.status_code,200)
+            arm.assert_not_called()
+            leader.assert_called_once()
+            self.assertEqual(leader.call_args.args[0],"configure")
+            self.assertFalse(saved["leader_enabled"])
 
     def test_box_view_uses_local_data_without_provider_calls(self):
         with patch.object(projectx_client,"post",side_effect=AssertionError("No broker calls")):
@@ -186,7 +190,12 @@ class NativeApiTests(unittest.TestCase):
     def test_startup_and_websocket_only_stream_local_records(self):
         with patch.object(projectx_client,"post",side_effect=AssertionError("No broker calls")) as broker:
             with self.client.websocket_connect(self.base.replace("http://", "ws://")+"/api/stream", headers={"origin":self.base, "cookie":"gox_session="+self.client.cookies.get("gox_session")}) as socket:
-                snapshot=socket.receive_json(); ticks=socket.receive_json()
+                frames=[socket.receive_json()]
+                self.assertEqual(frames[0]["type"],"ticks")
+                while not any(frame["type"]=="snapshot" for frame in frames):
+                    frames.append(socket.receive_json())
+                snapshot=next(frame for frame in frames if frame["type"]=="snapshot")
+                ticks=frames[0]
                 self.assertEqual(snapshot["type"],"snapshot")
                 self.assertEqual(ticks["type"],"ticks")
                 self.assertIn("prices",ticks["data"])

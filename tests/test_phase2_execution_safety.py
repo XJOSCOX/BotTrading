@@ -98,10 +98,10 @@ class EnvelopeTests(unittest.TestCase):
             self.assertFalse(e.claim(dict(alert_id=1, state="Intent")))
             post.assert_not_called()
 
-    def test_practice_still_requires_reviewed_calendar_but_never_leader_eligibility(self):
+    def test_each_account_requires_permission_and_reviewed_calendar(self):
         with tempfile.TemporaryDirectory() as folder, patch("goxtrade.market.calendar_guard.CALENDAR_PATH", Path(folder)/"absent.json"):
             self.assertIn("calendar", order_block(self.signal, "practice"))
-            self.assertIn("disabled", order_block(self.signal, "leader"))
+        self.assertIn("explicitly enabled", order_block(self.signal, "leader"))
 
 
 class SubmissionRaceTests(unittest.TestCase):

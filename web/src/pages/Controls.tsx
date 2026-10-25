@@ -214,8 +214,9 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
             <Notice>
               Strategy parameters and intervals are shared between both views.
               Account sizing and execution permission remain separate. VWAP EMA
-              Cross and Previous Day Box require separate Practice opt-in and
-              are not authorized for Leader execution.
+              Cross and Previous Day Box have the same capabilities in both
+              views. Each account requires its own opt-in, strategy selection
+              and Start authorization.
             </Notice>
           </aside>
         </div>

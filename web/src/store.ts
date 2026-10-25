@@ -27,6 +27,9 @@ export function useLive() {
 export async function refresh() {
   update(await api("/snapshot"));
 }
+export function isConnected() {
+  return data.connected === true;
+}
 export function connect() {
   let socket: WebSocket | undefined,
     timer: ReturnType<typeof setTimeout>,
@@ -46,7 +49,12 @@ export function connect() {
       };
       socket.onmessage = (event) => {
         const frame = JSON.parse(event.data);
+        const changedResearch =
+          frame.data.research_revision != null &&
+          frame.data.research_revision !== data.research_revision;
         update(frame.data);
+        if (changedResearch)
+          window.dispatchEvent(new Event("gox-research-updated"));
       };
       socket.onerror = () => socket?.close();
       socket.onclose = () => {

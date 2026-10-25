@@ -12,6 +12,7 @@ const groups: Record<string, string[]> = {
   "Monitoring & permissions": [
     "monitor_enabled",
     "practice_enabled",
+    "leader_enabled",
     "paper_enabled",
     "enabled_symbols",
     "notify_signals",
@@ -119,7 +120,7 @@ export function BoxParameters({
     >
       <Notice>
         Previous Day Box Reversal · Completed 15-minute candles ·
-        America/Chicago · Leader execution prohibited
+        America/Chicago · Independent account authorization
       </Notice>
       <div className="control-save-status" role="status">
         {dirty ? (
