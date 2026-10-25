@@ -73,7 +73,7 @@ def reserve(conn, candidates, state, policy, now):
             candidate = by_id[decision.candidate_id]
             identifier = digest(dict(account=state.account_id, profile=state.profile, candidate=candidate.candidate_id))
             exposure = Exposure(candidate.symbol, candidate.contract_id, candidate.direction, decision.quantity,
-                                candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, status="reserved")
+                                candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, protected=True, status="reserved")
             record = dict(id=identifier, account=state.account_id, profile=state.profile, candidate=candidate.candidate_id,
                           setup=candidate.setup_id, decision_at=now, status="reserved", broker_intent=None,
                           broker_order_id=None, reconciliation="simulation_only", exposure_record=exposure.__dict__,

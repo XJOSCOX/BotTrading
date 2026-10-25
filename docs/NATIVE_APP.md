@@ -98,11 +98,11 @@ trading latency or real-market profitability is claimed.
 
 ## Validation
 
-`python -m unittest discover` passed 350 tests with no failures, errors or skips.
+`python -m unittest discover` passed 404 tests with no failures, errors or skips.
 These include local API access controls, sanitized errors, arm preconditions,
 no-startup-side-effects and interface-only restart tests. Broker responses are mocked.
 TypeScript checking and the production build passed. The initial JavaScript bundle
-is approximately 80 KB gzip; the chart library is loaded separately.
+is approximately 84 KB gzip; the chart library is loaded separately.
 
 `python -m tests.test_native_browser` checks desktop/mobile navigation, no overflow,
 WebSocket updates, chart rendering, persistent zoom, resizable indicators and the

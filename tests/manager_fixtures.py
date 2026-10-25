@@ -16,7 +16,7 @@ def candidate(strategy="crt", direction="LONG", symbol="MNQ", key="setup-a", **c
                exit_mode="fixed", signal_minutes=3 if strategy == "vwap_ema_cross" else 15)
     result = adapt_alert(raw, account_id="test", profile="research", symbol=symbol, contract_id=contract,
         price=100., quote_at=NOW, confirmed_at=NOW, expires_at="2026-10-22T15:02:00+00:00",
-        confirmed=True, history_complete=True, execution_eligible=True, config={"entry_window_seconds": 120})
+        confirmed=True, history_complete=True, execution_eligible=True, config={"entry_window_seconds": 120}, session="2026-10-22")
     result = replace(result, **changes)
     return replace(result, candidate_id=digest(dict(strategy=result.strategy_id, setup=result.setup_id, account=result.account_id,
                                                    profile=result.profile, contract=result.contract_id, direction=result.direction)))

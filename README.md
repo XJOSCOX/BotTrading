@@ -121,3 +121,13 @@ claimed. Read [VWAP_EMA_CROSS.md](docs/VWAP_EMA_CROSS.md) for formulas, enabling
 data coverage, risk snapshots, schema additions, fill assumptions and known limitations.
 
 Run offline unit tests with `python -m unittest discover`. Browser checks live in `tests/` and require a local app and Playwright with Edge; run them as modules, such as `python -m tests.test_leader_browser`. They do not submit orders. `python -m scripts.practice_smoke_test` places broker orders; review it before use.
+
+## Strategy Manager
+
+The shared Strategy Manager evaluates all strategies together in shadow/research
+mode, with deterministic conflicts, portfolio risk, atomic research reservations,
+causal multi-instrument backtests and separate forward paper accounting. Paper is
+off by default; broker cutover is prohibited. Practice and Leader expose the same
+catalog and shared parameter/interval controls without copying account execution
+permissions. See [Strategy Execution Manager](docs/STRATEGY_EXECUTION_MANAGER.md)
+for architecture, validation, file manifest and broker-integration blockers.

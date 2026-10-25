@@ -17,7 +17,7 @@ class PortfolioRiskTests(unittest.TestCase):
         self.assertEqual(row.stop, 50.)
 
     def test_correlated_limits_and_same_underlying(self):
-        position = Exposure("MNQ", CONTRACT, "LONG", 1, 100., 90., "crt", "owner")
+        position = Exposure("MNQ", CONTRACT, "LONG", 1, 100., 90., "crt", "owner", protected=True)
         for row in (candidate(symbol="MES"), candidate(symbol="NQ")):
             result = authorize_risk(row, facts(positions=(position,)), policy(max_positions=3), NOW)
             self.assertFalse(result["allowed"])
@@ -38,3 +38,9 @@ class PortfolioRiskTests(unittest.TestCase):
     def test_gross_and_strategy_budget(self):
         self.assertFalse(authorize_risk(candidate(), facts(), policy(max_group_gross=100), NOW)["allowed"])
         self.assertFalse(authorize_risk(candidate(), facts(), policy(strategy_budgets=(("crt", 10),)), NOW)["allowed"])
+
+    def test_protective_verification_is_not_assumed(self):
+        exposure = Exposure("MES", "CON.F.US.MES.Z26", "LONG", 1, 100., 90., "crt", "owner")
+        result = authorize_risk(candidate(), facts(positions=(exposure,)), policy(max_positions=3, max_group_positions=3), NOW)
+        self.assertFalse(result["allowed"])
+        self.assertIn("unprotected", result["reason"])

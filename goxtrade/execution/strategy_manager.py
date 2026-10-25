@@ -46,6 +46,15 @@ def eligibility(candidate, state, policy, now, scope):
             return "REJECTED", "Signal interval disagrees with frozen strategy configuration"
         if candidate.management_mode not in ("fixed", "structure-v1", "trailing", "breakeven"):
             return "REJECTED", "Frozen exit-management mode is not supported"
+        management = json.loads(candidate.risk_json)
+        if not isinstance(management, dict):
+            return "REJECTED", "Frozen risk metadata must be an object"
+        if candidate.management_mode == "structure-v1" and management.get("management_minutes") not in (1, 3, 5, 10, 15, 30, 60):
+            return "REJECTED", "Adaptive exit interval is missing from frozen ownership metadata"
+        if candidate.management_mode == "trailing" and (not finite(management.get("trail_ticks")) or management["trail_ticks"] <= 0):
+            return "REJECTED", "Trailing distance is missing from frozen ownership metadata"
+        if not isinstance(candidate.session, str) or candidate.session in ("", "unspecified"):
+            return "REJECTED", "Source trading session identity is missing"
         created, confirmed, expiry, current = map(stamp, (candidate.created_at, candidate.confirmed_at, candidate.expires_at, now))
         if created > current or confirmed > current or expiry <= confirmed or created >= expiry:
             return "REJECTED", "Unobservable or inconsistent signal timestamps"
@@ -137,6 +146,6 @@ def evaluate(candidates, state, policy=None, now=None, *, scope="historical"):
             planned_risk=risk["planned_risk"], available_budget=risk["available_budget"], quantity=risk["quantity"],
             reasons=(risk["reason"],), execution_status="WOULD_SELECT" if scope == "shadow" else "SIMULATION_SELECTED")
         exposure = Exposure(candidate.symbol, candidate.contract_id, candidate.direction, risk["quantity"],
-                            candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, status="reserved")
+                            candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, protected=True, status="reserved")
         working = replace(working, reservations=(*working.reservations, exposure))
     return tuple(decisions[key] for key in sorted(decisions))

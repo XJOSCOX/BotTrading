@@ -38,6 +38,11 @@ class StrategyManagerTests(unittest.TestCase):
         self.assertFalse(evaluate([row, row], facts(), policy(), NOW)[0].selected)
         self.assertIn("consumed", evaluate([row], facts(consumed=(row.setup_id,)), policy(), NOW)[0].reasons[0])
 
+    def test_missing_session_exit_ownership_and_expiry_policy_rejected(self):
+        for changes in (dict(session="unspecified"), dict(management_mode="structure-v1"), dict(management_mode="trailing"),
+                        dict(expires_at="2026-10-22T16:00:00+00:00")):
+            self.assertFalse(evaluate([candidate(**changes)], facts(), policy(), NOW)[0].selected)
+
     def test_pure_reproducible_and_no_broker_claim(self):
         first = evaluate([candidate()], facts(), policy(), NOW)
         self.assertEqual(first, evaluate([candidate()], facts(), policy(), NOW))

@@ -11,7 +11,7 @@ from goxtrade.market.trading_schedule import execution_schedule
 from goxtrade.research.adapters import legacy_candidate
 from goxtrade.research.datasets import validate_dataset, dataset_hash, UnsupportedDataset
 from goxtrade.research.portfolio_forward_paper import (advance_portfolio, close_position, empty_portfolio,
-                                                      manage_completed, portfolio_summary)
+                                                      manage_completed, portfolio_summary, trading_day)
 from goxtrade.strategies.strategy_catalog import strategy_spec
 
 
@@ -82,7 +82,7 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
                     account_id=account, profile=profile, symbol=symbol, contract_id=contract, price=price, quote_at=(quote_times or {}).get(symbol, created),
                     confirmed_at=confirmed_at, expires_at=expiry.isoformat(), confirmed=valid,
                     history_complete=True, execution_eligible=True, config=config_values,
-                    session=now.tz_convert("America/Chicago").date().isoformat())
+                    session=trading_day(now.to_pydatetime()))
                 candidates.append(candidate)
             except UnsupportedDataset:
                 raise
@@ -151,7 +151,12 @@ def run_portfolio_backtest(datasets, policy, configurations=None, candidate_sour
             full = frames[symbol].loc[frames[symbol]["time"] <= now].copy()
             full.attrs.update(frames[symbol].attrs)
             manage_completed(state, symbol, full, closed_at)
-        state["equity"].append(state["realized"]+sum((state["marks"][p["exposure"]["symbol"]]["price"]-p["exposure"]["entry"])*(1 if p["exposure"]["direction"] == "LONG" else -1)*instrument(p["exposure"]["symbol"]).point_value*p["exposure"]["quantity"] for p in state["positions"]))
+        marked = state["realized"]
+        for position in state["positions"]:
+            exposure = position["exposure"]
+            marked += (state["marks"][exposure["symbol"]]["price"]-exposure["entry"])*(1 if exposure["direction"] == "LONG" else -1)*instrument(exposure["symbol"]).point_value*exposure["quantity"]
+            marked -= position["policy"]["commission_per_side"]*exposure["quantity"]
+        state["equity"].append(marked)
     return dict(kind="portfolio_backtest", policy=policy.to_dict(), configurations=configurations or {}, datasets=hashes,
                 summary=portfolio_summary(state), state=state, broker_checks="NOT_PERFORMED", assumptions="Next observed open; stop first for ambiguous OHLC; gaps marked; no synthetic rollover")
 

@@ -17,7 +17,7 @@ class Exposure:
     stop: float
     strategy_id: str
     owner: str
-    protected: bool = True
+    protected: bool = False
     status: str = "open"
 
     @property
@@ -36,7 +36,8 @@ class Exposure:
 
     def valid(self):
         return (self.direction in ("LONG", "SHORT") and type(self.quantity) is int and self.quantity > 0
-                and all(finite(v) and v > 0 for v in (self.entry, self.stop)) and bool(self.owner)
+                and all(finite(v) and v > 0 for v in (self.entry, self.stop)) and isinstance(self.owner, str) and bool(self.owner)
+                and isinstance(self.contract_id, str) and bool(self.contract_id.strip())
                 and self.protected is True and self.status in ("open", "reserved"))
 
 

@@ -138,7 +138,7 @@ def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
             record_decisions(state, [executable], [final_decision])
             if decision.selected and current_decision.selected:
                 exposure = Exposure(symbol, contract, candidate.direction, quantity, fill, candidate.stop,
-                                    candidate.strategy_id, candidate.candidate_id)
+                                    candidate.strategy_id, candidate.candidate_id, protected=True)
                 state["positions"].append(dict(candidate=candidate.to_dict(), exposure=exposure.__dict__,
                     policy=frozen.to_dict(), filled_at=when.isoformat(), planned_risk=final_decision.planned_risk,
                     management_state={**json.loads(candidate.risk_json), "signal": candidate.direction, "entry": fill,
@@ -167,7 +167,7 @@ def advance_portfolio(old, candidates, observations, policy, now, *, contracts,
                 continue
             candidate = by_id[decision.candidate_id]
             exposure = Exposure(candidate.symbol, candidate.contract_id, candidate.direction, decision.quantity,
-                                candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, status="reserved")
+                                candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, protected=True, status="reserved")
             state["pending"].append(dict(candidate=candidate.to_dict(), exposure=exposure.__dict__,
                                           policy=policy.to_dict(), selected_at=now.isoformat(), planned_risk=decision.planned_risk))
             state["consumed"].append(candidate.setup_id)

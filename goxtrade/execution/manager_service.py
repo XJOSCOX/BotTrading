@@ -45,6 +45,7 @@ def shadow(profile, *, persist=False, now=None):
     from goxtrade.market.trading_schedule import execution_schedule
     from goxtrade.strategies.entry_confirmation import check
     from goxtrade.strategies.strategy_catalog import strategy_spec, order_block
+    from goxtrade.research.portfolio_forward_paper import trading_day
     if profile not in ("practice", "leader"):
         raise ValueError("Unknown account view")
     now = stamp(now or datetime.now(timezone.utc))
@@ -89,7 +90,7 @@ def shadow(profile, *, persist=False, now=None):
             candidate = adapt_alert(alert, account_id=facts.account_id, profile=profile, symbol=symbol, contract_id=contract,
                 price=confirmation.get("price"), quote_at=quote["event_time"] if quote else None,
                 confirmed_at=confirmed, expires_at=expiry.isoformat(), confirmed=confirmation["state"] == "Confirmed",
-                history_complete=confirmation["state"] == "Confirmed", execution_eligible=permitted)
+                history_complete=confirmation["state"] == "Confirmed", execution_eligible=permitted, session=alert.get("session_id") or trading_day(now))
             candidates.append(candidate)
         except (ValueError, TypeError, KeyError):
             rejected.append(dict(alert_id=alert.get("id"), strategy=alert.get("strategy"), reason="Cannot form a complete validated execution envelope; watch only"))

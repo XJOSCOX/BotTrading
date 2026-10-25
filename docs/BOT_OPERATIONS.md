@@ -193,3 +193,20 @@ paper and Practice require explicit opt-in and never bypass existing safeguards.
 Missing prior-session history returns WAIT rather than using an older or mixed
 contract box. New monitoring modules require a guarded worker restart; interface
 restart alone never interrupts trading workers or authorizes entries.
+
+## Strategy Manager / Shadow and Research Only
+
+Use Strategy Manager in the native sidebar or the legacy Strategies tab. Both
+Practice and Leader show the complete strategy catalog and shared interval,
+indicator and Box controls; restricted Leader execution choices stay visible but
+cannot be selected. Research policy is shared, account entry permissions are not.
+
+Portfolio paper is a separate ledger, off by default. Set explicit costs and
+research limits, enable separate paper entries, then explicitly start its worker.
+Turning paper entries off cancels pending paper fills while existing paper exits
+continue. It does not change broker Run/Pause settings. Do not use paper results as
+broker fills or assume its risk policy changed funded-account controls.
+
+Existing broker workers and alert-ID selection remain unchanged. The manager's
+broker authorization and broker reservations are prohibited pending a separately
+reviewed cutover. See [Strategy Execution Manager](STRATEGY_EXECUTION_MANAGER.md).
