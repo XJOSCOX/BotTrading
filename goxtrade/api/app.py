@@ -354,6 +354,56 @@ def create_app():
         from goxtrade.execution.manager_service import overview
         return state.clean(overview(profile))
 
+    @app.get("/api/replay", dependencies=[Depends(session)])
+    def replay_overview():
+        from goxtrade.replay.replay_session import overview
+        return overview()
+
+    @app.post("/api/replay", dependencies=[Depends(mutation)])
+    def replay_create(body:dict):
+        from goxtrade.replay.replay_session import create
+        return create(body)
+
+    @app.post("/api/replay/ticks", dependencies=[Depends(mutation)])
+    def replay_ticks(body:dict):
+        from goxtrade.replay.replay_adapter import import_ticks
+        return import_ticks(body)
+
+    @app.post("/api/replay/ticks/saved", dependencies=[Depends(mutation)])
+    def replay_saved_ticks(body:dict):
+        from goxtrade.replay.replay_adapter import import_saved_ticks
+        return import_saved_ticks(body)
+
+    @app.get("/api/replay/{identifier}", dependencies=[Depends(session)])
+    def replay_detail(identifier:str):
+        from goxtrade.replay.replay_session import detail
+        return detail(identifier)
+
+    @app.post("/api/replay/{identifier}/control", dependencies=[Depends(mutation)])
+    def replay_control(identifier:str,body:dict):
+        from goxtrade.replay.replay_session import action
+        return action(identifier,body)
+
+    @app.get("/api/replay/{identifier}/chart", dependencies=[Depends(session)])
+    def replay_chart(identifier:str,symbol:str):
+        from goxtrade.replay.replay_session import chart
+        return chart(identifier,symbol)
+
+    @app.get("/api/replay/{identifier}/export", dependencies=[Depends(session)])
+    def replay_export(identifier:str):
+        from goxtrade.replay.replay_store import get
+        return get(identifier)
+
+    @app.get("/api/diagnostics", dependencies=[Depends(session)])
+    def diagnostics_view():
+        from goxtrade.diagnostics.projectx_diagnostics import overview
+        return overview()
+
+    @app.post("/api/diagnostics", dependencies=[Depends(mutation)])
+    def diagnostics_probe(body:dict):
+        from goxtrade.diagnostics.projectx_diagnostics import run
+        return run(body)
+
     @app.get("/api/validation-lab", dependencies=[Depends(session)])
     def validation_lab_view():
         from goxtrade.research.lab_service import overview

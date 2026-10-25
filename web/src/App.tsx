@@ -35,8 +35,27 @@ import { Badge, Notice } from "./components";
 import { StrategyManager } from "./pages/StrategyManager";
 import { TradeManagement } from "./pages/TradeManagement";
 import { ValidationLab } from "./pages/ValidationLab";
+import { MarketReplay } from "./pages/MarketReplay";
+import { Diagnostics } from "./pages/Diagnostics";
 
 const navigation = [
+  {
+    name: "Market Replay",
+    id: "market-replay",
+    icon: ChartCandlestick,
+    group: "Workspace",
+    detail: "Offline historical playback and isolated virtual trading",
+    component: MarketReplay,
+  },
+  {
+    name: "Diagnostics",
+    id: "diagnostics",
+    icon: Activity,
+    group: "Settings",
+    detail:
+      "Read-only ProjectX configuration, authentication and feed evidence",
+    component: Diagnostics,
+  },
   {
     name: "Dashboard",
     id: "dashboard",

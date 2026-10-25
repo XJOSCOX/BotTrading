@@ -1,0 +1,244 @@
+import { memo, useEffect, useState } from "react";
+import { RefreshCw, KeyRound, Search, Download } from "lucide-react";
+import { api, ct, type Json } from "../api";
+import { Badge, Field, Notice, Table } from "../components";
+import type { PageProps } from "../pageTypes";
+
+function DiagnosticsPage(_: PageProps) {
+  const [data, setData] = useState<Json | null>(null),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false),
+    [symbol, setSymbol] = useState("MNQ"),
+    [contract, setContract] = useState(""),
+    [start, setStart] = useState(""),
+    [end, setEnd] = useState(""),
+    [live, setLive] = useState(false);
+  const load = async () => setData(await api("/diagnostics"));
+  useEffect(() => {
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const refresh = async () => {
+      try {
+        const r = await api("/diagnostics");
+        if (!stopped) setData(r);
+      } catch (e) {
+        if (!stopped) setError(String(e));
+      }
+      if (!stopped) timer = setTimeout(refresh, 3000);
+    };
+    void refresh();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, []);
+  const probe = async (action: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await api(
+        "/diagnostics",
+        action === "authenticate"
+          ? { action }
+          : { action, symbol, contract_id: contract, start, end, live },
+      );
+      await load();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const download = () => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      }),
+      url = URL.createObjectURL(blob),
+      a = document.createElement("a");
+    a.href = url;
+    a.download = "sanitized-projectx-diagnostics.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  if (!data)
+    return <Notice>{error || "Loading local diagnostic evidence"}</Notice>;
+  return (
+    <>
+      <div className="section-heading">
+        <Badge>READ-ONLY / NO ORDERS</Badge>
+        <button onClick={download}>
+          <Download size={16} />
+          Export sanitized report
+        </button>
+      </div>
+      {error && <Notice danger>{error}</Notice>}
+      <section className="replay-config">
+        <div>
+          <h2>Configuration</h2>
+          <Table
+            heads={["Check", "Evidence"]}
+            rows={[
+              ["API host", data.configuration.api.host],
+              ["API URL valid", String(data.configuration.api.valid)],
+              ["Market hub", data.configuration.market_hub.host],
+              ["Username present", String(data.configuration.username_present)],
+              ["API key present", String(data.configuration.api_key_present)],
+              [
+                "Practice configured",
+                String(data.configuration.profiles.practice),
+              ],
+              ["Leader configured", String(data.configuration.profiles.leader)],
+            ]}
+          />
+          <h2>Authentication</h2>
+          <p>
+            {data.authenticated
+              ? `Successful probe: ${ct(data.authenticated_at)}`
+              : "Not tested in this interface process"}
+          </p>
+          <button disabled={busy} onClick={() => void probe("authenticate")}>
+            <KeyRound size={16} />
+            Test authentication
+          </button>
+        </div>
+        <div>
+          <h2>Historical access</h2>
+          <div className="form-grid">
+            <Field label="Diagnostic instrument">
+              <select
+                value={symbol}
+                onChange={(e) => setSymbol(e.target.value)}
+              >
+                {["MNQ", "MES", "MYM", "NQ", "ES", "YM"].map((s) => (
+                  <option key={s}>{s}</option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Actual diagnostic contract">
+              <input
+                value={contract}
+                onChange={(e) => setContract(e.target.value)}
+                list="diagnostic-contracts"
+              />
+              <datalist id="diagnostic-contracts">
+                {data.configuration.contracts.map((r: Json) => (
+                  <option key={r.symbol} value={r.contract_id}>
+                    {r.symbol}
+                  </option>
+                ))}
+              </datalist>
+            </Field>
+            <Field label="History start / UTC">
+              <input value={start} onChange={(e) => setStart(e.target.value)} />
+            </Field>
+            <Field label="History end exclusive / UTC">
+              <input value={end} onChange={(e) => setEnd(e.target.value)} />
+            </Field>
+            <Field label="Data subscription">
+              <select
+                value={String(live)}
+                onChange={(e) => setLive(e.target.value === "true")}
+              >
+                <option value="false">Simulated</option>
+                <option value="true">Live</option>
+              </select>
+            </Field>
+          </div>
+          <button
+            disabled={busy || !data.authenticated}
+            onClick={() => void probe("history")}
+          >
+            <Search size={16} />
+            Test historical data
+          </button>
+        </div>
+      </section>
+      <section>
+        <div className="section-heading">
+          <h2>Market-data evidence</h2>
+          <button onClick={() => void load()}>
+            <RefreshCw size={16} />
+            Refresh evidence
+          </button>
+        </div>
+        <div className="replay-toolbar">
+          <Badge>
+            {data.feed.market_open ? "MARKET OPEN" : "MARKET CLOSED"}
+          </Badge>
+          <span>{data.feed.connection}</span>
+          <span>
+            Source age:{" "}
+            {data.feed.source_age_seconds == null
+              ? "unknown"
+              : data.feed.source_age_seconds.toFixed(1) + "s"}
+          </span>
+          <span>
+            Reconnect attempts: {data.feed.reconnection_attempts ?? "unknown"}
+          </span>
+        </div>
+        {data.feed.recommendations.map((r: string) => (
+          <Notice key={r}>{r}</Notice>
+        ))}
+        <Table
+          heads={[
+            "Event",
+            "Instrument",
+            "Contract",
+            "Source timestamp",
+            "Local receipt",
+            "Price",
+          ]}
+          rows={data.feed.last_events.map((r: Json) => [
+            r.kind,
+            r.symbol,
+            r.contract_id,
+            ct(r.event_time),
+            ct(r.received_at),
+            r.price,
+          ])}
+        />
+        <Table
+          heads={["Instrument", "Contract", "Subscription evidence"]}
+          rows={data.feed.subscriptions.map((r: Json) => [
+            r.symbol,
+            r.contract_id,
+            r.state,
+          ])}
+        />
+      </section>
+      <section>
+        <h2>Explicit probe results</h2>
+        <Table
+          heads={[
+            "Time",
+            "Category",
+            "Diagnostic code",
+            "HTTP",
+            "Duration",
+            "Recommendation",
+          ]}
+          rows={data.results
+            .slice()
+            .reverse()
+            .map((r: Json) => [
+              ct(r.time),
+              r.category,
+              r.code,
+              r.http_status ?? "--",
+              r.duration_ms == null ? "--" : r.duration_ms + " ms",
+              <>
+                <span>{r.recommendation}</span>
+                {r.quality && (
+                  <details>
+                    <summary>OHLCV evidence</summary>
+                    <pre>{JSON.stringify(r.quality, null, 2)}</pre>
+                  </details>
+                )}
+              </>,
+            ])}
+        />
+      </section>
+    </>
+  );
+}
+export const Diagnostics = memo(DiagnosticsPage, () => true);

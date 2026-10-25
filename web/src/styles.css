@@ -1805,3 +1805,73 @@ dialog.modal::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+:root {
+  letter-spacing: 0;
+}
+.replay-config {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 28px;
+}
+.replay-config > div {
+  min-width: 0;
+}
+.replay-config .form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.replay-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin: 20px 0;
+}
+.replay-metrics .metric {
+  padding: 0 12px;
+  min-width: 0;
+}
+@media (max-width: 600px) {
+  .replay-metrics,
+  .replay-config .form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 390px) {
+  .replay-config .form-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+.replay-strategies {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+.replay-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 16px 0;
+}
+.replay-toolbar .field {
+  margin: 0;
+  min-width: 110px;
+}
+.replay-chart {
+  min-width: 0;
+  width: 100%;
+  height: 420px;
+  border: 1px solid var(--border, #303933);
+  border-radius: 6px;
+  overflow: hidden;
+}
+@media (max-width: 834px) {
+  .replay-config {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .replay-strategies {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
