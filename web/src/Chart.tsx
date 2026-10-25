@@ -15,11 +15,13 @@ export const MarketChart = memo(function MarketChart({
   minutes,
   hours,
   height,
+  endpoint,
 }: {
   symbol: string;
   minutes: number;
   hours: number;
   height: number;
+  endpoint?: string;
 }) {
   const priceEl = useRef<HTMLDivElement>(null),
     volumeEl = useRef<HTMLDivElement>(null),
@@ -29,7 +31,10 @@ export const MarketChart = memo(function MarketChart({
     rangeKey = `gx-range-${symbol}-${minutes}`;
   const [points, setPoints] = useState<Json[]>([]),
     [error, setError] = useState(""),
-    [loading, setLoading] = useState(true);
+    [loading, setLoading] = useState(true),
+    [overlay, setOverlay] = useState<Json | null>(null);
+  const overlaySeries = useRef<any[]>([]),
+    levelLines = useRef<any[]>([]);
   const [volumeHeight, setVolumeHeight] = useState(
     () => Number(localStorage.getItem("gx-volume-height")) || 65,
   );
@@ -55,15 +60,17 @@ export const MarketChart = memo(function MarketChart({
       try {
         controller = new AbortController();
         const data = await api(
-          "/chart?symbol=" +
-            encodeURIComponent(symbol) +
-            `&minutes=${minutes}&hours=${hours}`,
+          endpoint ||
+            "/chart?symbol=" +
+              encodeURIComponent(symbol) +
+              `&minutes=${minutes}&hours=${hours}`,
           undefined,
           "GET",
           controller.signal,
         );
         if (!stopped) {
           setPoints(data.points);
+          setOverlay(endpoint ? data : null);
           setError("");
           setLoading(false);
         }
@@ -82,19 +89,19 @@ export const MarketChart = memo(function MarketChart({
       clearTimeout(timer);
       controller?.abort();
     };
-  }, [symbol, minutes, hours]);
+  }, [symbol, minutes, hours, endpoint]);
   useEffect(() => {
     const options = {
       autoSize: true,
       layout: {
-        background: { type: ColorType.Solid, color: "#171a17" },
-        textColor: "#a0a99e",
+        background: { type: ColorType.Solid, color: "#151716" },
+        textColor: "#a0a59f",
         fontFamily: "Inter, Segoe UI, sans-serif",
         fontSize: 11,
       },
       grid: {
-        vertLines: { color: "#262c26" },
-        horzLines: { color: "#262c26" },
+        vertLines: { color: "#2c302d" },
+        horzLines: { color: "#2c302d" },
       },
       rightPriceScale: { borderColor: "#343c33", minimumWidth: 75 },
       timeScale: {
@@ -173,6 +180,8 @@ export const MarketChart = memo(function MarketChart({
     }
     return () => {
       charts.current = [];
+      overlaySeries.current = [];
+      levelLines.current = [];
       [p, v, r].forEach((c) => c.remove());
     };
   }, [symbol, minutes, rangeKey]);
@@ -192,18 +201,20 @@ export const MarketChart = memo(function MarketChart({
       })),
     );
     vol.setData(
-      points
-        .filter((p) => p.volume != null)
-        .map((p) => ({
-          time: p.time,
-          value: p.volume,
-          color: p.close >= p.open ? "#3b6650" : "#734d4a",
-        })),
+      points.map((p) =>
+        p.volume == null
+          ? { time: p.time }
+          : {
+              time: p.time,
+              value: p.volume,
+              color: p.close >= p.open ? "#3b6650" : "#734d4a",
+            },
+      ),
     );
     rsi.setData(
-      points
-        .filter((p) => p.rsi != null)
-        .map((p) => ({ time: p.time, value: p.rsi })),
+      points.map((p) =>
+        p.rsi == null ? { time: p.time } : { time: p.time, value: p.rsi },
+      ),
     );
     fast.setData(points.map((p) => ({ time: p.time, value: p.ema20 })));
     slow.setData(points.map((p) => ({ time: p.time, value: p.ema50 })));
@@ -233,6 +244,101 @@ export const MarketChart = memo(function MarketChart({
       charts.current.forEach((chart) => chart.timeScale().scrollToRealTime());
     updating.current = false;
   }, [points, rangeKey]);
+  useEffect(() => {
+    const chart = charts.current[0],
+      candle = series.current[0];
+    if (!chart || !candle) return;
+    const viewport = chart.timeScale().getVisibleLogicalRange();
+    updating.current = true;
+    levelLines.current.forEach((line) => candle.removePriceLine(line));
+    levelLines.current = [];
+    candle.setMarkers(
+      (overlay?.markers || []).filter((marker: Json) =>
+        points.some((point) => point.time === marker.time),
+      ),
+    );
+    if (overlay?.box) {
+      const box = overlay.box;
+      const levels = Object.values(overlay.levels || {}).filter(
+        (value): value is number =>
+          typeof value === "number" && Number.isFinite(value),
+      );
+      candle.applyOptions({
+        autoscaleInfoProvider: (base: () => any) => {
+          const info = base();
+          return info && levels.length
+            ? {
+                ...info,
+                priceRange: {
+                  minValue: Math.min(info.priceRange.minValue, ...levels),
+                  maxValue: Math.max(info.priceRange.maxValue, ...levels),
+                },
+              }
+            : info;
+        },
+      });
+      const visible = points.filter(
+        (point) => point.time >= Date.parse(box.closed_at) / 1000,
+      );
+      const zones = [
+        { base: box.pdl, value: box.buy_upper, color: "rgba(130,214,173,.12)" },
+        {
+          base: box.buy_upper,
+          value: box.sell_lower,
+          color: "rgba(188,196,189,.04)",
+        },
+        {
+          base: box.pdh,
+          value: box.sell_lower,
+          color: "rgba(239,163,163,.12)",
+        },
+      ];
+      zones.forEach((zone, index) => {
+        const area =
+          overlaySeries.current[index] ||
+          chart.addBaselineSeries({
+            baseValue: { type: "price", price: zone.base },
+            topFillColor1: zone.color,
+            topFillColor2: zone.color,
+            bottomFillColor1: zone.color,
+            bottomFillColor2: zone.color,
+            topLineColor: "transparent",
+            bottomLineColor: "transparent",
+            lastValueVisible: false,
+            priceLineVisible: false,
+            crosshairMarkerVisible: false,
+          });
+        area.applyOptions({ baseValue: { type: "price", price: zone.base } });
+        area.setData(
+          visible.map((point) => ({ time: point.time, value: zone.value })),
+        );
+        overlaySeries.current[index] = area;
+      });
+      Object.entries(overlay.levels || {}).forEach(([name, value]) => {
+        if (typeof value === "number" && Number.isFinite(value))
+          levelLines.current.push(
+            candle.createPriceLine({
+              price: value,
+              color:
+                name === "stop"
+                  ? "#efa3a3"
+                  : name === "target"
+                    ? "#82d6ad"
+                    : "#adbcad",
+              lineWidth: 1,
+              lineStyle: name === "midpoint" ? 2 : 0,
+              axisLabelVisible: true,
+              title: name.toUpperCase(),
+            }),
+          );
+      });
+    } else {
+      overlaySeries.current.forEach((item) => chart.removeSeries(item));
+      overlaySeries.current = [];
+    }
+    if (viewport) chart.timeScale().setVisibleLogicalRange(viewport);
+    updating.current = false;
+  }, [overlay, points]);
   useEffect(() => {
     series.current.slice(3).forEach((s) => s.applyOptions({ visible: ema }));
   }, [ema, points.length]);
@@ -328,6 +434,12 @@ export const MarketChart = memo(function MarketChart({
         <div className="chart-ohlc">
           O {price(last.open)} &nbsp; H {price(last.high)} &nbsp; L{" "}
           {price(last.low)} &nbsp; C {price(last.close)}
+        </div>
+      )}
+      {overlay?.box && (
+        <div className="chart-ohlc">
+          Previous session {overlay.box.session_id} ·{" "}
+          {overlay.box.session_definition} · CT
         </div>
       )}
       {error && <Notice danger>{error}</Notice>}

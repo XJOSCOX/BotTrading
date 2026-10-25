@@ -4,6 +4,7 @@ import { type Json } from "../api";
 import { Badge, Field, Metric, Notice, Table, Toggle } from "../components";
 import { type PageProps } from "../pageTypes";
 import { Tabs } from "./Tabs";
+import { BoxParameters } from "./PreviousDayBox";
 
 export function Controls({ config, live, profile, act, busy }: PageProps) {
   const [tab, setTab] = useState("Entry policy"),
@@ -74,10 +75,18 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
       }}
     >
       <Tabs
-        values={["Entry policy", "Intervals & sessions", "VWAP EMA parameters"]}
+        values={[
+          "Entry policy",
+          "Intervals & sessions",
+          "VWAP EMA parameters",
+          "Previous Day Box",
+        ]}
         selected={tab}
         onChange={setTab}
       />
+      {tab === "Previous Day Box" && (
+        <BoxParameters config={config} act={act} busy={busy} />
+      )}
       <div className="control-save-status" role="status" aria-live="polite">
         {Object.values(dirty).some(Boolean) && (
           <Badge tone="warning">Unsaved changes</Badge>
@@ -122,11 +131,15 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
                       {s.signal_minutes} min signal ·{" "}
                       {s.entry_policy === "indicator-event-v1"
                         ? "Indicator cross"
-                        : "Multi-timeframe confirmation"}
+                        : s.entry_policy === "previous-box-v1"
+                          ? "Previous completed session box"
+                          : "Multi-timeframe confirmation"}
                     </small>
                   </span>
                   <Badge>
-                    {s.id === "vwap_ema_cross" ? "Practice opt-in" : "Strategy"}
+                    {s.execution_profiles.length === 1
+                      ? "Practice opt-in"
+                      : "Strategy"}
                   </Badge>
                 </label>
               ))}
@@ -328,7 +341,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
   );
 }
 
-function DynamicField({
+export function DynamicField({
   name,
   value,
   set,
@@ -346,6 +359,18 @@ function DynamicField({
     anchor: ["futures", "rth", "custom"],
     stop_method: ["atr", "swing", "fixed", "buffered"],
     management_method: ["fixed", "trailing", "breakeven", "adaptive"],
+    session: ["futures", "rth", "custom"],
+    confirmation: ["wick", "sweep", "structure", "combined"],
+    combined_logic: ["AND", "OR"],
+    outside_mode: ["ignore", "reclaim", "breakout_research"],
+    sweep_boundary: ["extreme", "zone"],
+    target_method: [
+      "midpoint",
+      "opposite_zone",
+      "opposite_boundary",
+      "rr",
+      "adaptive",
+    ],
   };
   const label = name.replaceAll("_", " ");
   if (typeof value === "boolean")

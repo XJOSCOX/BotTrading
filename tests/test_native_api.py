@@ -149,6 +149,23 @@ class NativeApiTests(unittest.TestCase):
                 self.assertEqual((saved["monitor_enabled"],saved["practice_enabled"],saved["signal_minutes"],saved["ema_length"]),(enabled,enabled,5,12))
             arm.assert_not_called()
 
+    def test_box_settings_round_trip_never_arms_and_leader_is_rejected(self):
+        with patch.object(practice_executor,"arm") as arm,patch("goxtrade.execution.leader_execution.command") as leader:
+            response=self.post("/api/previous-day-box",dict(session="rth",buy_percent=20,sell_percent=80,practice_enabled=True))
+            self.assertEqual(response.status_code,200,response.text)
+            saved=self.client.get("/api/config").json()["previous_day_box"]
+            self.assertEqual((saved["session"],saved["buy_percent"],saved["sell_percent"]),("rth",20,80))
+            self.assertFalse(saved["paper_enabled"])
+            response=self.post("/api/policy/leader",dict(strategies=["Previous Day Box Reversal"],quantities=dict(MNQ=3,MES=3,MYM=3),cooldown=5,enable_mym=False))
+            self.assertEqual(response.status_code,400)
+            arm.assert_not_called();leader.assert_not_called()
+
+    def test_box_view_uses_local_data_without_provider_calls(self):
+        with patch.object(projectx_client,"post",side_effect=AssertionError("No broker calls")):
+            response=self.client.get("/api/previous-day-box/NQ%3DF")
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(response.json()["signal"]["signal"],"WAIT")
+
     def test_arm_requires_exact_name_safeguards_and_fresh_account_worker(self):
         target = api_module.identity.TARGETS["practice"]
         with patch.object(practice_executor, "arm") as arm, patch.object(practice_executor,"snapshot",return_value=({}, {}, [])):

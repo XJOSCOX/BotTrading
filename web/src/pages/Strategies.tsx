@@ -4,8 +4,9 @@ import { age, ct, price, type Json } from "../api";
 import { Badge, Empty, Table } from "../components";
 import { type PageProps, symbols, tone } from "../pageTypes";
 import { Tabs } from "./Tabs";
+import { PreviousDayBoxPanel } from "./PreviousDayBox";
 
-export function Strategies({ live, profile, act, busy }: PageProps) {
+export function Strategies({ config, live, profile, act, busy }: PageProps) {
   const [tab, setTab] = useState("Active setups"),
     [past, setPast] = useState(false),
     [filter, setFilter] = useState("All");
@@ -19,17 +20,23 @@ export function Strategies({ live, profile, act, busy }: PageProps) {
         Number(["Open", "Closing"].includes(byId.get(a.id)?.state)) ||
       b.id - a.id,
   );
-  const names = [
-    ...new Set<string>(live.monitor.map((row: Json) => row.strategy)),
-  ];
+  const names: string[] = config.strategies.map((spec: Json) => spec.name);
+  const selected: string[] = config.policies[profile]?.strategies || [];
   return (
     <>
       <Tabs
-        values={["Active setups", "Decision log", "Notifications"]}
+        values={[
+          "Active setups",
+          "Decision log",
+          "Notifications",
+          "Previous Day Box",
+        ]}
         selected={tab}
         onChange={setTab}
       />
-      {tab === "Active setups" ? (
+      {tab === "Previous Day Box" ? (
+        <PreviousDayBoxPanel />
+      ) : tab === "Active setups" ? (
         <div className="strategy-layout">
           <section>
             <div className="section-heading">
@@ -68,12 +75,20 @@ export function Strategies({ live, profile, act, busy }: PageProps) {
                 <tbody>
                   {names.map((name) => (
                     <tr key={name}>
-                      <th>{name}</th>
+                      <th>
+                        {name}
+                        <small>
+                          {selected.includes(name)
+                            ? "Selected for entry"
+                            : "Watch only"}
+                        </small>
+                      </th>
                       {symbols.map((s) => {
                         const row = live.monitor.find(
                             (r: Json) => r.symbol === s && r.strategy === name,
                           ),
-                          sig = row?.signal;
+                          sig = row?.signal,
+                          stale = !row?.updated_at || age(row.updated_at) > 30;
                         return (
                           <td key={s}>
                             <Badge
@@ -85,10 +100,18 @@ export function Strategies({ live, profile, act, busy }: PageProps) {
                                     : ""
                               }
                             >
-                              {sig?.signal || "WAIT"}
+                              {stale
+                                ? "NO CURRENT RESULT"
+                                : sig?.signal || "WAIT"}
                             </Badge>
                             <small>
-                              {row?.focus_value || "No current evaluation"}
+                              {stale
+                                ? live.session?.is_open
+                                  ? "Awaiting worker evaluation"
+                                  : "Market closed"
+                                : row?.focus_value ||
+                                  sig?.reason ||
+                                  "No current evaluation"}
                             </small>
                           </td>
                         );

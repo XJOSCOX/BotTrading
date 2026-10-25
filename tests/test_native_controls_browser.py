@@ -52,7 +52,7 @@ def run():
             if reject_save and path.startswith("/api/policy/"):
                 route.fulfill(status=503, json=dict(detail="Test save rejected; existing settings unchanged."))
                 return
-            assert request.method == "GET" or path.startswith(("/api/policy/", "/api/intervals", "/api/vwap")), path
+            assert request.method == "GET" or path.startswith(("/api/policy/", "/api/intervals", "/api/vwap", "/api/previous-day-box")), path
             headers = {key:value for key,value in request.headers.items() if key in ("origin","x-gox-csrf","content-type")}
             response = client.request(request.method, path, content=request.post_data, headers=headers)
             if request.method == "POST":
@@ -123,6 +123,14 @@ def run():
                 page.reload()
                 verify(all_strategies,True,dict(MNQ=4,MES=1,MYM=3),19)
                 assert state.configuration()["policies"][profile]["strategies"]==all_strategies
+                page.locator('nav[aria-label="Main navigation"]').get_by_role("link",name="Strategies",exact=True).click()
+                page.locator("table.matrix tbody th").first.wait_for()
+                labels=page.locator("table.matrix tbody th").all_text_contents()
+                for strategy in all_strategies:
+                    assert any(label.startswith(strategy) and "Selected" in label for label in labels),(strategy,labels)
+                assert any(label.startswith("Previous Day Box Reversal") for label in labels),labels
+                page.locator('nav[aria-label="Main navigation"]').get_by_role("link",name="Control Center",exact=True).click()
+                page.get_by_role("heading",name="Entry configuration").wait_for()
                 # Native browser validity must block an out-of-range contract count.
                 before=len(saved_requests)
                 page.get_by_label("MNQ contracts").fill("5")
@@ -170,8 +178,21 @@ def run():
             expect(page.get_by_label("signal minutes",exact=True)).to_have_value("5")
             expect(page.get_by_label("ema length",exact=True)).to_have_value("12")
             expect(page.get_by_role("checkbox",name="monitor enabled",exact=True)).not_to_be_checked()
+            page.get_by_role("tab",name="Previous Day Box",exact=True).click()
+            expect(page.get_by_role("checkbox",name="practice enabled",exact=True)).not_to_be_checked()
+            expect(page.get_by_role("checkbox",name="paper enabled",exact=True)).not_to_be_checked()
+            page.get_by_label("buy percent",exact=True).fill("20")
+            page.get_by_label("sell percent",exact=True).fill("80")
+            page.get_by_label("session",exact=True).select_option("rth")
+            page.get_by_role("button",name="Save box parameters",exact=True).click()
+            expect(page.get_by_text("Box settings saved. No account armed.",exact=True)).to_be_visible()
+            page.reload()
+            page.get_by_role("tab",name="Previous Day Box",exact=True).click()
+            expect(page.get_by_label("buy percent",exact=True)).to_have_value("20")
+            expect(page.get_by_label("sell percent",exact=True)).to_have_value("80")
+            expect(page.get_by_label("session",exact=True)).to_have_value("rth")
             assert not errors, errors
-            assert len(saved_requests)==11, saved_requests
+            assert len(saved_requests)==12, saved_requests
             browser.close()
     print("Control Center real-API/temp-DB browser checks passed: both profiles, strategy on/off/all-off, MYM, sizes, cooldown, stale snapshots, reconnect drafts, save failure, independent tabs, intervals, VWAP and reload persistence. No broker actions or production writes.")
 

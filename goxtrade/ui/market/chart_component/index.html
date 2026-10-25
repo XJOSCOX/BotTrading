@@ -244,12 +244,20 @@ window.addEventListener('message',event=>{
     strategyVwapSeries.setData(next.map(b=>b.strategy_vwap==null?{time:b.time}:{time:b.time,value:b.strategy_vwap}));
   }
   series.setMarkers(args.markers || []);
+  (window.boxZoneSeries || []).forEach(item=>chart.removeSeries(item));window.boxZoneSeries=[];
+  if(args.box){
+    const b=args.box, visible=next.filter(point=>point.time>=Date.parse(b.closed_at)/1000);
+    [[b.pdl,b.buy_upper,'rgba(130,214,173,.12)'],[b.buy_upper,b.sell_lower,'rgba(188,196,189,.04)'],[b.pdh,b.sell_lower,'rgba(239,163,163,.12)']].forEach(([base,value,color])=>{
+      const area=chart.addBaselineSeries({baseValue:{type:'price',price:base},topFillColor1:color,topFillColor2:color,bottomFillColor1:color,bottomFillColor2:color,topLineColor:'transparent',bottomLineColor:'transparent',lastValueVisible:false,priceLineVisible:false});
+      area.setData(visible.map(point=>({time:point.time,value})));window.boxZoneSeries.push(area);
+    });
+  }
   strategyLevels.forEach(line=>series.removePriceLine(line));strategyLevels=[];
   Object.entries(args.levels || {}).forEach(([name,price])=>{
     if(typeof price==='number' && Number.isFinite(price)) strategyLevels.push(series.createPriceLine({price,
       color:name==='stop'?'#f28c98':name==='target'?'#65d6bc':'#e6bc61',lineWidth:1,lineStyle:2,axisLabelVisible:true,title:name}));
   });
-  if(args.strategy_overlay) series.applyOptions({autoscaleInfoProvider:base=>{
+  if(args.strategy_overlay || args.box) series.applyOptions({autoscaleInfoProvider:base=>{
     const info=base();if(!info) return info;
     const levels=Object.values(args.levels || {}).filter(p=>typeof p==='number' && Number.isFinite(p));
     return {...info,priceRange:{minValue:Math.min(info.priceRange.minValue,...levels),maxValue:Math.max(info.priceRange.maxValue,...levels)}};

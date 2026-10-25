@@ -78,6 +78,7 @@ class Research(Body):
     zero_cost_sensitivity: StrictBool = False
     slippage: Annotated[StrictInt, Field(ge=0, le=100)] = 1
     quantity: Count = 1
+    walk_forward: StrictBool = False
 
 
 def session(request: Request):
@@ -232,6 +233,17 @@ def create_app():
         save_vwap_ema_config(config)
         return dict(message="VWAP settings saved. No account armed.")
 
+    @app.post("/api/previous-day-box", dependencies=[Depends(mutation)])
+    def previous_box_settings(values: dict):
+        from goxtrade.strategies.strategy_settings import save_previous_day_box_config
+        save_previous_day_box_config(values)
+        return dict(message="Previous Day Box settings saved. No account armed; Leader remains prohibited.")
+
+    @app.get("/api/previous-day-box/{symbol}", dependencies=[Depends(session)])
+    def previous_box_view(symbol: Literal["NQ=F","ES=F","YM=F","MNQ=F","MES=F","MYM=F"]):
+        from goxtrade.data.previous_box_view import view
+        return state.clean(view(symbol))
+
     @app.post("/api/credentials", dependencies=[Depends(mutation)])
     def credentials(body: Credentials):
         from contextlib import closing
@@ -320,7 +332,9 @@ def create_app():
     @app.get("/api/research", dependencies=[Depends(session)])
     def research_runs():
         from goxtrade.research.result_store import saved_runs
-        return state.clean(dict(runs=saved_runs()))
+        from goxtrade.research.forward_paper import paper_trades
+        from goxtrade.research.metrics import breakdown
+        return state.clean(dict(runs=saved_runs(),paper_summary=breakdown(paper_trades(),"strategy")))
 
     @app.post("/api/research", dependencies=[Depends(mutation)])
     def research(body: Research):
@@ -332,9 +346,18 @@ def create_app():
         source = pd.read_csv(StringIO(body.csv))
         if len(source) > 15000:
             raise ValueError("Use at most 15000 actual minute bars per interactive research run")
-        config = read_vwap_ema_config()
+        from goxtrade.strategies.strategy_catalog import strategy_spec
+        spec = strategy_spec(body.strategy)
+        if spec.id=="previous_day_box":
+            from goxtrade.strategies.strategy_settings import read_previous_day_box_config
+            config = read_previous_day_box_config()
+        else:
+            config = read_vwap_ema_config() if spec.id=="vwap_ema_cross" else None
         sim = SimulationConfig(quantity=body.quantity, commission_per_side=body.commission, zero_cost_sensitivity=body.zero_cost_sensitivity, slippage_ticks=body.slippage)
         result = run_backtest(source, body.symbol, body.contract_id, strategy=body.strategy, strategy_config=config, simulation=sim)
+        if body.walk_forward:
+            from goxtrade.research.backtest import chronological_splits as walk_forward
+            result["walk_forward"] = walk_forward(source,body.symbol,body.contract_id,strategy=body.strategy,strategy_config=config,simulation=sim)
         number = save_run(dict(symbol=body.symbol, contract_id=body.contract_id), result)
         return state.clean(dict(message="Simulated research saved separately from broker results.", id=number, result=result))
 

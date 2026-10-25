@@ -6,6 +6,8 @@ import { type PageProps } from "../pageTypes";
 
 export function Research({ config, act, busy }: PageProps) {
   const [runs, setRuns] = useState<Json[]>([]),
+    [paper, setPaper] = useState<Json>({}),
+    [selectedRun, setSelectedRun] = useState(""),
     [csv, setCsv] = useState(""),
     [symbol, setSymbol] = useState("MNQ"),
     [contract, setContract] = useState(""),
@@ -13,8 +15,13 @@ export function Research({ config, act, busy }: PageProps) {
     [fee, setFee] = useState(""),
     [zero, setZero] = useState(false),
     [slip, setSlip] = useState(1),
-    [qty, setQty] = useState(1);
-  const load = () => api("/research").then((r) => setRuns(r.runs));
+    [qty, setQty] = useState(1),
+    [walk, setWalk] = useState(false);
+  const load = () =>
+    api("/research").then((r) => {
+      setRuns(r.runs);
+      setPaper(r.paper_summary || {});
+    });
   useEffect(() => {
     void load();
   }, []);
@@ -38,6 +45,7 @@ export function Research({ config, act, busy }: PageProps) {
               zero_cost_sensitivity: zero,
               slippage: slip,
               quantity: qty,
+              walk_forward: walk,
             });
             if (r) void load();
           }}
@@ -72,6 +80,11 @@ export function Research({ config, act, busy }: PageProps) {
               onChange={(e) => setContract(e.target.value)}
             />
           </Field>
+          <Toggle
+            label="Walk-forward validation"
+            value={walk}
+            onChange={setWalk}
+          />
           <Field label="Actual minute OHLCV CSV">
             <input
               type="file"
@@ -134,9 +147,9 @@ export function Research({ config, act, busy }: PageProps) {
             volume. Single contract only. No reconstructed intrabar entries.
           </p>
           <p className="muted">
-            VWAP parameters come from Control Center. Realtime and anticipatory
-            modes require tick data and are not supported by this minute-CSV
-            form.
+            Strategy parameters come from Control Center. Realtime and
+            anticipatory modes require tick data and are not supported by this
+            minute-CSV form.
           </p>
           <a
             href="http://127.0.0.1:8502/?page=Bot"
@@ -178,6 +191,136 @@ export function Research({ config, act, busy }: PageProps) {
           r.result.simulation.slippage_ticks + " ticks",
         ])}
       />
+      {runs.length > 0 && (
+        <section className="spaced">
+          <Field label="Research run details">
+            <select
+              value={selectedRun}
+              onChange={(event) => setSelectedRun(event.target.value)}
+            >
+              <option value="">Select a saved run</option>
+              {runs.map((run) => (
+                <option key={run.id} value={run.id}>
+                  #{run.id} · {run.result.strategy} · {ct(run.created_at)}
+                </option>
+              ))}
+            </select>
+          </Field>
+          {runs
+            .filter((run) => String(run.id) === selectedRun)
+            .map((run) => (
+              <div key={run.id}>
+                <Table
+                  heads={["Metric", "Value"]}
+                  rows={Object.entries(run.result.summary).map(
+                    ([key, value]) => [
+                      key.replaceAll("_", " "),
+                      typeof value === "number"
+                        ? value.toLocaleString(undefined, {
+                            maximumFractionDigits: 3,
+                          })
+                        : "--",
+                    ],
+                  )}
+                />
+                <h3 className="spaced">
+                  Direction / session / monthly performance
+                </h3>
+                <Table
+                  heads={[
+                    "Grouping",
+                    "Segment",
+                    "Trades",
+                    "Win rate",
+                    "Net",
+                    "Profit factor",
+                  ]}
+                  rows={Object.entries(run.result.breakdown).flatMap(
+                    ([group, values]) =>
+                      Object.entries(values as Json).map(([segment, value]) => [
+                        group,
+                        segment,
+                        value.trades,
+                        value.win_rate == null
+                          ? "--"
+                          : value.win_rate.toFixed(1) + "%",
+                        money(value.net),
+                        value.profit_factor?.toFixed(2) ?? "--",
+                      ]),
+                  )}
+                />
+                <h3 className="spaced">Monthly returns</h3>
+                <Table
+                  heads={[
+                    "Month",
+                    "Starting balance",
+                    "Ending balance",
+                    "Net",
+                    "Closed return (%)",
+                  ]}
+                  rows={Object.entries(run.result.monthly_returns || {}).map(
+                    ([month, value]: [string, any]) => [
+                      month,
+                      money(value.starting_balance),
+                      money(value.ending_balance),
+                      money(value.net),
+                      value.closed_trade_return_percent?.toFixed(2) ?? "--",
+                    ],
+                  )}
+                />
+                <h3 className="spaced">Entry decisions / data sufficiency</h3>
+                <Table
+                  heads={["Reason", "Count"]}
+                  rows={Object.entries(run.result.decisions || {})}
+                />
+                {run.result.walk_forward && (
+                  <>
+                    <h3 className="spaced">Walk-forward validation</h3>
+                    <Table
+                      heads={[
+                        "Fold",
+                        "Split (CT)",
+                        "Train trades",
+                        "Test trades",
+                        "Test net",
+                      ]}
+                      rows={run.result.walk_forward.map((fold: Json) => [
+                        fold.fold,
+                        ct(fold.split_at),
+                        fold.in_sample.summary.trades,
+                        fold.out_of_sample.summary.trades,
+                        money(fold.out_of_sample.summary.net),
+                      ])}
+                    />
+                  </>
+                )}
+              </div>
+            ))}
+        </section>
+      )}
+      <section className="spaced">
+        <h2>Forward paper / simulated fills only</h2>
+        <Table
+          heads={[
+            "Strategy",
+            "Trades",
+            "Wins",
+            "Losses",
+            "Net",
+            "Profit factor",
+            "Commission",
+          ]}
+          rows={Object.entries(paper).map(([name, value]) => [
+            name,
+            value.trades,
+            value.wins,
+            value.losses,
+            money(value.net),
+            value.profit_factor?.toFixed(2) ?? "--",
+            money(value.commissions),
+          ])}
+        />
+      </section>
     </>
   );
 }

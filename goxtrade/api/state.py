@@ -130,6 +130,7 @@ def configuration():
                       execution_settings=execution_settings,
                       stop_minutes=strategy_settings.read_stop_minutes(), orb_minutes=strategy_settings.read_orb_minutes(),
                       vwap=strategy_settings.read_vwap_ema_config().to_dict(), targets=identity.current_targets(),
+                      previous_day_box=strategy_settings.read_previous_day_box_config().to_dict(),
                       restart_required=identity.restart_required(), credentials_present=credentials_present(),
                       calendar=restriction(datetime.now(timezone.utc), required=True), worker=status(),
                       symbols=[dict(symbol=symbol, contract_id=contract_for_symbol(symbol)) for symbol in load_symbols()]))
