@@ -158,6 +158,7 @@ def local_state(targets):
 
 
 def collect(broker=None, now=None):
+    live_clock = now is None
     now = now or datetime.now(timezone.utc)
     broker = broker or ReadOnlyBroker()
     report = dict(schema_version=1, scope="READ_ONLY_PROVIDER", observed_at=now.isoformat(), profile="practice",
@@ -177,6 +178,11 @@ def collect(broker=None, now=None):
     try:
         targets = execution_identity.current_targets()
         state = local_state(targets)
+        if live_clock:
+            # A collector can commit a receipt between the initial clock read and
+            # the SQLite snapshot. Observe after the read, never permit future data.
+            now = datetime.now(timezone.utc)
+            report["observed_at"] = now.isoformat()
         check("execution_process_profile", execution_identity.PROFILE == "practice")
         check("practice_and_leader_paused", all(p["settings"].get("enabled") is False for p in state["profiles"].values()))
         unresolved = sum(j.get("state") not in ("Closed", "Rejected") for p in state["profiles"].values() for j in p["jobs"])

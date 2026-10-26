@@ -229,6 +229,17 @@ class PreflightTests(unittest.TestCase):
 
     real_local_state=staticmethod(v.local_state)
 
+    def test_live_snapshot_uses_clock_after_receipt_read(self):
+        from datetime import timedelta
+        later=STAMP+timedelta(milliseconds=3)
+        for kind in ("quote","trade"):
+            self.state[kind]["received_at"]=(STAMP+timedelta(milliseconds=1)).isoformat()
+        with patch.object(v,"datetime",wraps=datetime) as clock:
+            clock.now.side_effect=[STAMP]+[later]*30
+            report=v.collect()
+        self.assertNotIn("fresh_mnq_quote",report["blockers"])
+        self.assertNotIn("fresh_mnq_trade",report["blockers"])
+
 
 class SevenStrategyPipelineTests(unittest.TestCase):
     def test_all_seven_confirmation_expiry_arbitration_direction_quantity_and_risk(self):
