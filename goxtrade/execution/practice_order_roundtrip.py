@@ -21,6 +21,27 @@ READ_COLLECTIONS = {**preflight.READ_ENDPOINTS, "/api/Order/search":"orders", "/
 TERMINAL = ("COMPLETE", "REJECTED")
 
 
+def validate_broker_rows(key, rows):
+    require(isinstance(rows,list) and all(isinstance(row,dict) for row in rows),"Malformed broker collection")
+    if key not in ("positions","orders","trades"):
+        return rows
+    for row in rows:
+        require(type(row.get("id")) is int and row["id"]>0 and type(row.get("accountId")) is int
+                and isinstance(row.get("contractId"),str) and type(row.get("size")) is int and row["size"]>0,
+                "Broker exposure/fill identifiers or whole-contract quantity are malformed")
+        if key=="positions":
+            require(type(row.get("type")) is int and row["type"] in (1,2),"Broker position direction is malformed")
+        else:
+            require(type(row.get("side")) is int and row["side"] in (0,1),"Broker order/trade side is malformed")
+        if key=="orders":
+            require(type(row.get("type")) is int and type(row.get("status")) is int,"Broker order type/status is malformed")
+            if row.get("fillVolume") is not None:
+                require(type(row["fillVolume"]) is int and row["fillVolume"]>=0,"Broker fill volume is malformed")
+        if key=="trades":
+            require(type(row.get("orderId")) is int and row["orderId"]>0 and type(row.get("voided")) is bool,"Broker trade ownership/voiding status is malformed")
+    return rows
+
+
 class PracticeBroker:
     def __init__(self, store=None, clock=None):
         self.token = None
@@ -45,7 +66,7 @@ class PracticeBroker:
                 raise TestBlocked("Broker collection unavailable; do not infer flat state")
             if "accountId" in payload and any(row.get("accountId") != payload["accountId"] for row in rows):
                 raise TestBlocked("Broker account response mismatch")
-            return rows
+            return validate_broker_rows(READ_COLLECTIONS[path],rows)
         except TestBlocked:
             raise
         except Exception:
@@ -293,6 +314,8 @@ class PracticeRoundTrip:
         working=self.broker.read("/api/Order/searchOpen",{"accountId":account["id"]})
         orders=self.broker.read("/api/Order/search",payload)
         trades=self.broker.read("/api/Trade/search",payload)
+        for key,rows in (("positions",positions),("orders",working),("orders",orders),("trades",trades)):
+            validate_broker_rows(key,rows)
         require(all(t.get("voided") in (True,False) and type(t.get("voided")) is bool for t in trades), "Trade voiding status unavailable")
         return positions,working,orders,[t for t in trades if t["voided"] is False]
 

@@ -49,7 +49,7 @@ class FakeBroker:
         self.orders.append(order)
         if self.fill:
             price=100.25 if payload["side"]==0 else 100.
-            self.positions=[dict(accountId=41,contractId=payload["contractId"],size=1,type=payload["side"]+1,averagePrice=price)]
+            self.positions=[dict(id=301,accountId=41,contractId=payload["contractId"],size=1,type=payload["side"]+1,averagePrice=price)]
             self.trades.append(dict(id=501,orderId=100,accountId=41,contractId=payload["contractId"],side=payload["side"],size=1,
                                     price=price,fees=.5,profitAndLoss=None,voided=False,creationTimestamp=self.clock().isoformat()))
             if self.protected:
@@ -394,6 +394,17 @@ class RoundTripTests(unittest.TestCase):
         for result in ([],dict(success="true",errorCode=0,positions=[]),dict(success=True,errorCode=0,positions=[dict(accountId=42)]),dict(success=True,errorCode=0,positions=None)):
             with patch.object(client,"post",return_value=result),self.assertRaises(TestBlocked):
                 transport.read("/api/Position/searchOpen",dict(accountId=41))
+
+    def test_boolean_enum_quantity_and_fill_values_are_not_broker_evidence(self):
+        record=self.submit()
+        cases=((self.broker.positions[0],"type"),(self.broker.positions[0],"size"),
+               (self.broker.orders[0],"fillVolume"),(self.broker.orders[0],"side"),
+               (self.broker.trades[0],"side"),(self.broker.trades[0],"size"))
+        for row,key in cases:
+            previous=row[key]; row[key]=True
+            with self.subTest(key=key),self.assertRaises(TestBlocked):self.flow.reconcile(record["id"])
+            row[key]=previous
+        self.assertFalse(self.broker.closed)
 
 
 if __name__=="__main__":
