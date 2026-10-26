@@ -156,6 +156,77 @@ class RoundTripTests(unittest.TestCase):
         self.assertEqual(self.broker.entered[0]["side"],1)
         self.assertEqual(self.broker.entered[0]["stopLossBracket"],dict(type=4,ticks=6))
 
+    def test_three_tick_spread_is_explicit_proposal_only_and_preserved_for_submission(self):
+        self.local["quote"]["best_ask"]=100.75
+        with self.assertRaises(TestBlocked):self.propose(side="SELL")
+        with closing(e.db()) as conn:
+            leader_before=conn.execute("SELECT settings,status FROM leader_control").fetchall()
+        record=self.propose(side="SELL",max_spread_ticks=3)
+        self.assertEqual(record["proposal"]["max_spread_ticks"],3)
+        self.assertFalse(self.broker.entered)
+        self.flow.submit(record["id"],lambda *_:True)
+        self.assertEqual(len(self.broker.entered),1)
+        self.assertEqual(self.broker.entered[0]["accountId"],41)
+        with closing(e.db()) as conn:
+            self.assertEqual(leader_before,conn.execute("SELECT settings,status FROM leader_control").fetchall())
+        with self.assertRaises(TestBlocked):self.flow.context()
+
+    def test_three_tick_override_rejects_wider_or_changed_spread_before_wire(self):
+        record=self.propose(side="SELL",max_spread_ticks=3)
+        self.local["quote"]["best_ask"]=101.
+        with self.assertRaises(TestBlocked):self.propose(max_spread_ticks=3)
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        self.local["quote"]["best_ask"]=100.75
+        def changed_after_confirmation(*_):
+            self.local["quote"]["best_ask"]=101.
+            return True
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],changed_after_confirmation)
+        self.assertFalse(self.broker.entered)
+
+    def test_spread_override_is_bounded_digest_bound_and_never_for_leader(self):
+        for value in (True,3.,0,4):
+            with self.subTest(value=value),self.assertRaises(TestBlocked):self.propose(max_spread_ticks=value)
+        with patch.object(identity,"PROFILE","leader"),self.assertRaises(TestBlocked):
+            self.propose(max_spread_ticks=3)
+        record=self.propose()
+        record["proposal"]["max_spread_ticks"]=3
+        self.store.update(record["id"],("PROPOSED",),proposal=record["proposal"])
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        self.assertFalse(self.broker.entered)
+
+    def test_explicit_market_pricing_keeps_stop_risk_and_fresh_spread_checks(self):
+        record=self.propose(side="SELL",price_policy="market",max_spread_ticks=3)
+        self.local["quote"].update(best_bid=105.,best_ask=105.75)
+        self.local["trade"]["price"]=105.25
+        self.flow.submit(record["id"],lambda *_:True)
+        self.assertEqual(len(self.broker.entered),1)
+        self.assertEqual(self.broker.entered[0]["stopLossBracket"],dict(type=4,ticks=6))
+        self.assertEqual(record["proposal"]["planned_risk_usd"],6.)
+
+    def test_market_pricing_never_bypasses_stale_quote_spread_refusal_or_digest(self):
+        record=self.propose(price_policy="market",max_spread_ticks=3)
+        self.local["quote"]["event_time"]="2020-01-01T00:00:00Z"
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        self.local["quote"]["event_time"]=self.now.isoformat()
+        self.local["quote"]["best_ask"]=101.
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        self.local["quote"]["best_ask"]=100.25
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:False)
+        record["proposal"]["price_policy"]="bounded"
+        self.store.update(record["id"],("PROPOSED",),proposal=record["proposal"])
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        self.assertFalse(self.broker.entered)
+
+    def test_bounded_pricing_is_still_default_and_market_is_not_for_leader(self):
+        record=self.propose()
+        self.assertEqual(record["proposal"]["price_policy"],"bounded")
+        self.local["quote"].update(best_bid=105.,best_ask=105.25)
+        with self.assertRaises(TestBlocked):self.flow.submit(record["id"],lambda *_:True)
+        with self.assertRaises(TestBlocked):self.propose(price_policy="ignore_all_checks")
+        with patch.object(identity,"PROFILE","leader"),self.assertRaises(TestBlocked):
+            self.propose(price_policy="market",max_spread_ticks=3)
+        self.assertFalse(self.broker.entered)
+
     def test_wrong_or_leader_account_is_rejected(self):
         for account in ({**ACCOUNT,"id":42},{**ACCOUNT,"name":"XFA-OTHER"},{**ACCOUNT,"canTrade":False}):
             self.broker.account=account

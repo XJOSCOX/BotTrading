@@ -148,6 +148,18 @@ It must fit both the operator cap and the remaining existing $500 account/run-lo
 budgets. Existing cooldown, no unresolved orders, paused profiles, no emergency
 flag, current exact MNQ contract/tick specifications, fresh contract-matched
 bid/ask/trade observations and a spread no larger than two ticks are required.
+For the operator's explicitly requested Phase 11 exception, controlled Practice
+`readiness`/`propose` accepts `--max-spread-ticks 3`. The default remains two. This
+is an immutable, digest-bound field in that test proposal, reused by every entry
+preflight before/after approval and after reservation. Four ticks still blocks;
+invalid limits and Leader profiles remain prohibited. Submit cannot silently
+change a saved proposal's spread limit. This option never writes Practice/Leader
+strategy settings, execution controls or account loss limits.
+The operator also explicitly requested current market execution without a fixed
+reference-price band. Practice proposals can opt into `--price-policy market`;
+the default remains `bounded`. This field is approval/digest-bound. Market mode
+retains fresh source/receipt times, spread, account, review, expiry, quantity,
+stop and planned-risk checks; it does not guarantee actual costs or prices.
 Market/stop fills are not guaranteed prices; actual costs/slippage can exceed an
 estimate. The bracket is a fixed tick distance from actual fill, not a guaranteed
 absolute stop level.
@@ -324,6 +336,190 @@ approval refusal. Automated tests never send real orders.
 
 **Real round-trip validation: NOT PERFORMED / BLOCKED on operator prerequisites.
 Automatic strategy testing and Leader activation: NOT AUTHORIZED.**
+
+## Phase 11 Operational Attempt: October 26, 2026
+
+Fetched `origin` and confirmed the clean delivery branch matched `1cfc71d` before
+the attempt. Reused the existing CLI and read-only broker adapters; no new order
+system or transport was introduced. Inspected the account/OCO/calendar reviews,
+proposal/approval gates, durable intent, entry/stop reconciliation and separately
+approved close/emergency/recovery paths. No strategy, copier, account assignment,
+position limit, loss control or worker state was changed.
+
+The genuine default preflight at 18:08:05 CT authenticated successfully and
+matched the exact configured Practice identity with provider trading eligibility.
+The balance and configured loss/run gates passed. Broker state was zero positions
+and zero working orders; there were zero unresolved local execution jobs. Both
+Practice and Leader entries remained paused. No Leader order operation occurred.
+The API still does not establish Practice category or Auto OCO mode independently.
+
+Active broker-discovered contract: `CON.F.US.MNQ.Z26`, tick size 0.25, tick value
+USD 0.50. The market stream was connected. Quote/trade source ages were 1.781 /
+1.909 seconds at the default audit snapshot; 60 historical bars were read without
+saving them into production. A separate read-only snapshot at 18:08:43 CT showed
+a two-tick bid/ask spread with current quote/trade receipts. These snapshots are
+observations, not an executable proposal or a promise of future market prices.
+Exact account identifiers and balance were shown privately to the operator, not
+exported into this committed guide.
+
+The standard session and existing execution schedule reported Overnight/open.
+Official CME trading-hours and Topstep permitted-hours sources were consulted;
+clock-window eligibility and fresh prices were not substituted for a reviewed
+exchange calendar. No global calendar file or test calendar review was present.
+No exact-account operator review was present. The existing `--mode readiness`
+command therefore correctly blocked on the missing exact-account provider/Auto
+OCO operator review before any proposal or order could be created.
+
+Requested from the operator: provider evidence showing this designated account's
+Practice category/reset capability and its selected-account Auto OCO Risk Settings,
+plus copier/manual-trading isolation confirmation. The prior general statement
+that OCO applies to both profiles was retained as a statement, not fabricated
+account-bound evidence. Also requested BUY/SELL, stop ticks, commission per side,
+slippage ticks and the maximum total planned risk. No side was chosen by a strategy.
+
+**Entry proposal: not created. Entry approval: not obtained. Entry transmission:
+none. Actual fill/protective stop: not tested. Separate close approval/request:
+none. Final observed broker state: flat with zero working orders at preflight;
+not a completed round trip. Actual execution fees, commissions, slippage and P&L:
+not available because no test order occurred.** No broker failure was observed;
+remaining blockers are provider evidence/review, an actual reviewed calendar,
+remaining proposal inputs and fresh separate entry/close approvals. Automated Practice
+strategy acceptance remains unestablished and strategies were not enabled.
+
+The read-only JSON evidence remains local in the existing ignored artifact
+`data/verification/practice-execution-readonly.json`. Phase 10's 598-test result
+above is historical verification, not a new Phase 11 real-order result. This
+attempt stops at the authoritative prerequisite gates without weakening them.
+
+The operator subsequently selected **SELL** and confirmed the requested Practice/
+OCO/isolation statement in chat. This selects the direction only, not entry
+approval. No new account-bound provider attachment, stop distance, commission,
+slippage allowance or risk cap accompanied the response; the supported review
+and proposal gates remain incomplete. No review or approval was synthesized.
+
+### Follow-Up With Account-Specific Screenshot
+
+The operator subsequently supplied the full provider screenshot with the exact
+configured Practice account selected, matching balance, explicit $150K PRACTICE
+category and Auto OCO Risk Settings visible together, and repeated the request
+for one MNQ SELL. Combined with the operator's reset/isolation confirmation and
+explicit authorization to complete the review workflow, this established the
+previously missing account-bound evidence. Codex completed the existing interactive
+`review-account` command using that image for both evidence references. The stored
+basis is OPERATOR_REVIEWED_PROVIDER_EVIDENCE, not a new provider API discriminator.
+The review expires at 18:45:02 CT. No entry confirmation was entered.
+
+Codex also performed the authorized source review against CME's Micro E-mini FAQ
+and published 2026 Globex holiday schedule, and the existing Topstep permitted-hours
+source. October 26-27 is outside the listed Globex holiday windows. The reviewed
+file covers only October 26 at 17:00 CT to October 27 at 16:00 CT, with the CME
+15:15-15:30 CT halt excluded. The existing earlier Topstep cutoff/flatten gates
+continue to apply. The actual review timestamp is 18:15:25 CT. The existing
+interactive `review-calendar` command recorded the file/digest; the global
+calendar file was not created or changed. Local source-review artifact:
+`data/verification/phase11-reviewed-session.json`. No claim is made that the
+human personally entered the CLI review phrases; Codex performed those non-order
+reviews under the operator's authorization and supplied evidence/confirmation.
+
+After reviews, `--mode readiness` blocked on the live bid/ask/tick-grid gate.
+A single subsequent `--mode propose` attempt used SELL, one MNQ, 100 stop ticks,
+USD 1 estimated commission per side, two estimated slippage ticks per side,
+USD 54 planned risk and USD 60 cap. These were disclosed candidate test inputs,
+not operator-approved entry details or altered account limits. The same live
+gate blocked before a proposal was persisted. At 18:16:33 CT the local source
+snapshot showed bid 29,426.25 / ask 29,427.00, or three ticks. Bid, ask and trade
+were on valid 0.25 increments. The existing maximum is two spread ticks; it was
+not widened. Quotes are historical observations, not current executable prices.
+
+**Follow-up outcome: evidence/calendar reviews completed; no executable proposal,
+entry authorization, entry transmission, fill, tested stop, close request or
+execution costs. Current blocker: live spread gate. Automatic entries remain
+paused.** The next preparation attempt must revalidate current quotes and all
+reviews, then display a fresh one-time proposal for specific operator approval.
+
+### Actual Authorized Entry And Full Close
+
+This supersedes the earlier blocked-attempt outcome, not the historical Phase 10
+results. The operator explicitly allowed a three-tick spread for this Practice
+test only and requested market-price execution regardless of reference-price
+movement. Added bounded, proposal-specific CLI options described above; no regular
+Practice/Leader policy, account assignment, strategy, size, loss limit or copier
+configuration was changed. Tests verify default two-tick/bounded pricing,
+digest-bound explicit exceptions, all final preflights, retained fresh-data/stop/
+risk checks, duplicate denial and Leader exclusion. The three-tick revision passed
+601 full tests in 115.974 seconds. The subsequent market-price revision passed
+75 focused Phase 9/10 safety tests and the final full suite passed **604 tests in
+117.451 seconds**, with no failures/errors. Python compilation and diff checks
+passed. Final suite output: ignored local
+`data/verification/phase11-unittest-final.log`. Mocks are not counted as broker
+acceptance; the real order evidence below is recorded separately.
+
+An initial approved bounded-price proposal was rejected before transmission
+because the market moved outside its disclosed price band. No intent or wire
+attempt was created for that proposal. A new proposal explicitly disclosed market
+pricing without that reference band, one MNQ SELL, 100 stop ticks, USD 1 estimated
+commission per side, two estimated slippage ticks per side, USD 54 planned risk,
+USD 60 estimated-risk cap and maximum three spread ticks. Actual losses/fills
+were expressly not guaranteed by that estimate. The operator approved that exact
+test ID and expiration before the existing submit confirmation was entered.
+
+Test ID: `4229a01be83c49b88a716cd3411983fb`.
+
+- Account: exact authenticated designated resettable Practice; identifiers remain
+  private in the local audit, never a Leader/funded/evaluation fallback.
+- Contract: `CON.F.US.MNQ.Z26`, SELL one market contract.
+- Entry broker order: `3686444578`, actually filled 29,455.00 at broker timestamp
+  October 26, 18:23:48.448858 CT. Provider code 0; acknowledgment 220.15 ms.
+- Required stop: broker order `3686444579`, BUY stop, size one, type 4, Open,
+  parent `3686444578`, stop price 29,480.00. Exact account/contract, quantity,
+  direction and 100-tick fill-relative distance were independently reconciled.
+  The test reached PROTECTED; initial reconciliation took 1,081.91 ms.
+- Entry reported fees: USD 0.36. Fill was three points adverse to the proposal
+  snapshot 29,458.00. Because the approved market policy allowed reference movement,
+  this measures snapshot-to-fill movement, not isolated network/exchange slippage.
+- The separately approved first close expired during final rechecks and sent no
+  close request. A refreshed full-close proposal received new explicit approval.
+  Its CLI `direction` field reflects the open SELL position; the operator-facing
+  approval correctly specified BUY TO CLOSE, and the broker confirms BUY. This
+  labeling mismatch should be corrected before broader operator acceptance.
+- Durable full-close intent: 18:26:08.092725 CT; close wire claim recorded before
+  the existing exact-account full-position close route. Close acknowledgment was
+  421.42 ms. No repeat close or experimental cancellation was sent.
+- Actual exit: broker order `3686456650`, BUY one, Filled, fill volume one,
+  29,462.25; nonvoid broker trade `3245723239` at 18:26:06.976230 CT.
+- Provider-reported realized P&L: USD -14.50, independently consistent with
+  (29,455.00 - 29,462.25) x USD 2/point. Exit reported fees: USD 0.36; total
+  reported entry/exit fees USD 0.72; net of those reported fees USD -15.22.
+  No unreported commission component is invented.
+- Final observed broker positions: zero. Working orders: zero. Original stop
+  status Canceled, fill volume zero. No orphan stop remains. No duplicate entry
+  or close was submitted. No Leader order route was used.
+- Exit execution slippage against a synchronized pre-wire quote is unavailable;
+  a prior UI/approval snapshot is not relabeled as an execution-time benchmark.
+
+**Operational entry, attached protection and separately authorized full close
+were broker-confirmed. The software test is NOT marked COMPLETE.** Its strict
+exit timestamp gate rejects the exit because the broker timestamp is approximately
+1.116 seconds before the local durable close intent. A clock-domain discrepancy
+is suspected; no arbitrary clock tolerance or fabricated timestamp was inserted.
+The actual broker exit is the unique new opposing fill in the isolated Practice
+history, but the existing automatic matcher still reports
+FLAT_RECONCILIATION_PENDING. The test record remains unresolved, with both
+automatic entry profiles paused. The existing production worker independently
+marked its corresponding job Closed after flat-state cleanup; the controller did
+not force-complete its separate test record. Do not repeat a close, clear the test,
+enable strategies or declare automated acceptance merely because the account is
+flat. Resolve the timestamp attribution with measured evidence and regression
+coverage first. This is a real operational finding, not another proposed trade.
+
+All live order operations used the existing Phase 10 workflow and separate
+human approvals. Durable intent/event records remain in the local SQLite audit.
+Sanitized, freshly queried order/trade history and final broker counts were saved
+using the existing evidence writer to the ignored local artifact
+`data/verification/phase11-broker-roundtrip-evidence.json`. It preserves both the
+actual fills and the unresolved software state; it does not clear reservations.
+No credentials or full account search response were exported. No trading worker
+was restarted.
 
 ## Primary Sources
 

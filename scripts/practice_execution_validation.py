@@ -23,8 +23,16 @@ def main(argv=None):
     parser.add_argument("--commission-per-side", type=float)
     parser.add_argument("--slippage-ticks", type=int)
     parser.add_argument("--max-risk", type=float)
+    parser.add_argument("--max-spread-ticks", type=int, choices=(2,3), default=2,
+                        help="Controlled Practice readiness/proposal only; default 2. Submission reuses the exact proposal limit, never Leader settings.")
+    parser.add_argument("--price-policy", choices=("bounded","market"), default="bounded",
+                        help="Practice proposal only. Explicit market pricing permits reference-price movement, not stale data or excessive spread; requires fresh approval.")
     parser.add_argument("--seconds", type=int, default=30)
     args = parser.parse_args(argv)
+    if args.max_spread_ticks != 2 and args.mode not in ("readiness","propose"):
+        parser.error("--max-spread-ticks applies only to controlled Practice readiness/propose modes")
+    if args.price_policy != "bounded" and args.mode != "propose":
+        parser.error("--price-policy applies only to controlled Practice propose mode")
     if args.mode:
         if args.request_order:
             parser.error("--request-order is read-only and cannot be combined with a test mode")
@@ -79,13 +87,14 @@ def controlled(args, parser):
             required("calendar")
             result=review_calendar(workflow.store,args.calendar,confirm,datetime.now(timezone.utc))
         elif args.mode=="readiness":
-            context=workflow.context()
+            context=workflow.context(max_spread_ticks=args.max_spread_ticks)
             result=dict(scope="CONTROLLED_PRACTICE_PREFLIGHT",state="READY_FOR_PROPOSAL",profile="practice",
                 contract=context["contract"]["id"],quote_time=context["quote_time"],operator_reviews="VERIFIED_PROVIDER_EVIDENCE",
-                flat=True,working_orders=0,leader_excluded=True,orders_submitted=0)
+                flat=True,working_orders=0,leader_excluded=True,orders_submitted=0,max_spread_ticks=context["max_spread_ticks"])
         elif args.mode=="propose":
             required("side","stop_ticks","commission_per_side","slippage_ticks","max_risk")
-            record=workflow.propose(args.side,args.stop_ticks,args.commission_per_side,args.slippage_ticks,args.max_risk)
+            record=workflow.propose(args.side,args.stop_ticks,args.commission_per_side,args.slippage_ticks,args.max_risk,
+                                    max_spread_ticks=args.max_spread_ticks,price_policy=args.price_policy)
             # Exact identity is displayed privately for this explicit operator proposal, never exported by status.
             print(json.dumps(dict(test_id=record["id"],proposal=record["proposal"]),indent=2))
             return 0

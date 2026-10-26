@@ -162,7 +162,9 @@ class PracticeRoundTrip:
         account = preflight.exact_practice(self.broker.read("/api/Account/search", {"onlyActiveAccounts":False}), targets)
         return targets, account
 
-    def context(self, own_test=None):
+    def context(self, own_test=None, *, max_spread_ticks=2):
+        require(type(max_spread_ticks) is int and max_spread_ticks in (2,3),
+                "Controlled Practice spread must be two ticks or an explicitly selected three ticks")
         now = self.clock()
         targets = identity.current_targets()
         reviewed = account_review(self.store, targets, now)
@@ -205,21 +207,22 @@ class PracticeRoundTrip:
             require(row.get("contract_id") == contract["id"] and preflight.fresh(row.get("event_time"),now)
                     and preflight.fresh(row.get("received_at"),now), "MNQ quote/trade is stale, future-dated or on another contract")
         bid, ask = quote.get("best_bid"), quote.get("best_ask")
-        require(grid(bid) and grid(ask) and 0 < ask-bid <= .5 and grid(trade.get("price")), "MNQ bid/ask spread or tick grid is unacceptable")
+        require(grid(bid) and grid(ask) and 0 < ask-bid <= max_spread_ticks*.25 and grid(trade.get("price")), "MNQ bid/ask spread or tick grid is unacceptable")
         positions = self.broker.read("/api/Position/searchOpen", {"accountId":account["id"]})
         orders = self.broker.read("/api/Order/searchOpen", {"accountId":account["id"]})
         require(not positions and not orders, "Practice account is not flat or has working orders; do not close them automatically")
         return dict(account_id=account["id"],account_name=account["name"],identity_key=identity_key(targets),contract=contract,
                     bid=bid,ask=ask,price=trade["price"],quote_time=quote["event_time"],remaining=remaining,
-                    review_key=digest(reviewed),calendar_key=digest(calendar),now=now)
+                    review_key=digest(reviewed),calendar_key=digest(calendar),now=now,max_spread_ticks=max_spread_ticks)
 
-    def propose(self, side, stop_ticks, commission_per_side, slippage_ticks, max_risk):
+    def propose(self, side, stop_ticks, commission_per_side, slippage_ticks, max_risk, *, max_spread_ticks=2, price_policy="bounded"):
+        require(price_policy in ("bounded","market"), "Choose bounded or explicit market pricing for this Practice test")
         require(side in ("BUY","SELL"), "Choose BUY or SELL explicitly; no strategy chooses the test side")
         require(type(stop_ticks) is int and 6 <= stop_ticks <= 10000, "Stop must be at least 6 whole ticks under the documented conservative Topstep bracket minimum")
         require(preflight.finite(commission_per_side) and commission_per_side > 0, "Provide a positive estimated commission per side")
         require(type(slippage_ticks) is int and 0 <= slippage_ticks <= 20, "Provide a bounded whole-tick slippage estimate")
         require(preflight.finite(max_risk) and max_risk > 0, "Provide an explicit planned-risk cap")
-        context = self.context()
+        context = self.context(max_spread_ticks=max_spread_ticks)
         planned = stop_ticks*.5+commission_per_side*2+slippage_ticks
         require(planned <= min(max_risk,context["remaining"]), "Planned stop risk plus costs exceeds the approved or existing account/run budget")
         reference = context["ask"] if side == "BUY" else context["bid"]
@@ -230,9 +233,10 @@ class PracticeRoundTrip:
             reference=reference,bid=context["bid"],ask=context["ask"],quote_time=context["quote_time"],
             stop_ticks=stop_ticks,reference_stop=reference+(-1 if side == "BUY" else 1)*stop_ticks*.25,
             estimated_commission_per_side=commission_per_side,slippage_ticks=slippage_ticks,
-            planned_risk_usd=planned,max_risk_usd=max_risk,
+            planned_risk_usd=planned,max_risk_usd=max_risk,max_spread_ticks=max_spread_ticks,price_policy=price_policy,
             expires_at=(context["now"]+timedelta(seconds=45)).isoformat(),leader_excluded=True,
-            price_condition="Current bid/ask must remain within the approved slippage band; spread at most two ticks",
+            price_condition=("Market entry at refreshed quotes; no fixed reference price band" if price_policy=="market"
+                             else "Current bid/ask must remain within the approved slippage band")+f"; spread at most {max_spread_ticks} ticks",
             warning="Market fills and stop fills can exceed estimates. Stop is a fixed tick distance from actual fill, not a guaranteed absolute price.")
         record = dict(id=identifier,state="PROPOSED",proposal=proposal,proposal_digest=digest(proposal),created_at=context["now"].isoformat(),
                       alert_id=-int(identifier[:13],16),tag="gx-practice-validation-"+identifier)
@@ -247,20 +251,25 @@ class PracticeRoundTrip:
 
     def validate_context(self, record, context):
         p=record["proposal"]
+        require(context["max_spread_ticks"] == p.get("max_spread_ticks",2), "Spread limit does not match the exact proposal")
         require(self.clock() < stamp(p["expires_at"]), "Proposal expired; request a new proposal and approval")
         require(context["identity_key"] == p["identity_key"] and context["account_id"] == p["account_id"], "Account changed after proposal")
         require(context["contract"]["id"] == p["contract_id"], "Active contract changed; fresh proposal required")
         require(context["review_key"] == p["review_key"] and context["calendar_key"] == p["calendar_key"], "Evidence/calendar review changed; fresh proposal required")
         band=p["slippage_ticks"]*.25
-        require(abs(context["bid"]-p["bid"]) <= band and abs(context["ask"]-p["ask"]) <= band, "Approved price conditions changed; fresh proposal required")
+        policy=p.get("price_policy","bounded")
+        require(policy in ("bounded","market"), "Unknown approved price policy")
+        if policy=="bounded":
+            require(abs(context["bid"]-p["bid"]) <= band and abs(context["ask"]-p["ask"]) <= band, "Approved price conditions changed; fresh proposal required")
         require(p["planned_risk_usd"] <= min(p["max_risk_usd"],context["remaining"]), "Existing loss budget changed; submission blocked")
 
     def submit(self, identifier, confirm):
         record=self.load(identifier)
         require(record["state"] == "PROPOSED", "Entry authorization was already consumed; reconcile, never resubmit")
-        self.validate_context(record,self.context())
+        max_spread_ticks=record["proposal"].get("max_spread_ticks",2)
+        self.validate_context(record,self.context(max_spread_ticks=max_spread_ticks))
         require(confirm(record["proposal"],"ENTER "+identifier), "Specific entry approval was not given")
-        context=self.context()
+        context=self.context(max_spread_ticks=max_spread_ticks)
         self.validate_context(record,context)
         p=record["proposal"]
         payload=executor.build_order(dict(id=record["alert_id"],symbol="NQ=F",signal="LONG" if p["side"]=="BUY" else "SHORT",
@@ -270,7 +279,7 @@ class PracticeRoundTrip:
         payload["customTag"]=record["tag"]
         self.reserve(record,payload)
         try:
-            self.validate_context(record,self.context(own_test=identifier))
+            self.validate_context(record,self.context(own_test=identifier,max_spread_ticks=max_spread_ticks))
         except Exception:
             self.store.update(identifier,("INTENT",),state="RECHECK_BLOCKED",reason="Final preflight changed after reservation; no transmission. Reconciliation required.")
             raise TestBlocked("Final preflight changed; intent retained and no order transmitted") from None
