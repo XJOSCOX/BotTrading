@@ -76,9 +76,26 @@ export function Connection({ config, act, busy }: PageProps) {
               remain in the ignored local .env file.
             </p>
             <Notice>
-              Pause and stop trading workers before changing an active login.
-              Saving a key does not enable trading.
+              Before saving credentials, pause both accounts and stop the
+              trading workers. Shutdown checks for unresolved bot orders and
+              verifies that broker accounts are flat. Saving a key does not
+              enable trading.
             </Notice>
+            <div className="button-row">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void act("/workers/stop", {})}
+              >
+                <Pause size={16} />
+                Pause & stop trading workers
+              </button>
+            </div>
+            <p className="footnote">
+              After shutdown succeeds, save your username and API key, then test
+              the connection. Your entries stay in this form if saving fails.
+              Workers are never stopped automatically by Save.
+            </p>
             <p className="footnote">
               If provider access is unavailable, contact ProjectX with the error
               and timestamp. Never send the API key or bearer token.

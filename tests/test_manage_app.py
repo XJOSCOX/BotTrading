@@ -6,6 +6,21 @@ from unittest.mock import patch
 from goxtrade.runtime import manage_app
 
 
+class InitialSetupShutdownTests(unittest.TestCase):
+    def test_no_configured_accounts_require_no_authentication(self):
+        with patch.object(manage_app, "TARGETS", {"practice": {"name": "YOUR_PRACTICE"}}), \
+                patch.object(manage_app, "login") as login, patch.object(manage_app, "post") as post:
+            self.assertTrue(manage_app.broker_flat())
+            login.assert_not_called()
+            post.assert_not_called()
+
+    def test_configured_account_still_requires_broker_verification(self):
+        with patch.object(manage_app, "TARGETS", {"leader": {"name": "50KTC-test", "id": 42}}), \
+                patch.object(manage_app, "login", side_effect=RuntimeError("Authentication unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "Authentication unavailable"):
+                manage_app.broker_flat()
+
+
 class ManualControlTests(unittest.TestCase):
     def test_worker_maintenance_stop_leaves_web_ui_open(self):
         with patch.object(manage_app.practice_executor, "pause"), patch.object(manage_app.leader_execution, "command"), \

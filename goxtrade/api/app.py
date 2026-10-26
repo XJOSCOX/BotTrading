@@ -273,9 +273,9 @@ def create_app():
         from goxtrade.data.live_store import connect
         from goxtrade.execution.account_management import assert_idle, assert_workers_stopped
         from goxtrade.execution.projectx_client import save_credentials
-        assert_workers_stopped()
+        assert_workers_stopped(action="changing API credentials. Use Connection > Market worker > Pause & stop trading workers first")
         with closing(connect()) as conn:
-            assert_idle(conn)
+            assert_idle(conn, action="changing API credentials")
         save_credentials(body.username, body.api_key.get_secret_value())
         return dict(message="Credentials saved locally. Restart workers after changing the login.")
 
@@ -307,8 +307,25 @@ def create_app():
         async with app.state.action_lock:
             return await asyncio.to_thread(execute, profile, action, body)
 
+    @app.get("/api/services", dependencies=[Depends(session)])
+    def service_status():
+        from goxtrade.runtime.service_control import status
+        return status()
+
+    @app.post("/api/services/{action}", dependencies=[Depends(mutation)])
+    async def service_action(action: Literal["start", "restart", "stop"]):
+        from goxtrade.runtime.service_control import command
+        async with app.state.action_lock:
+            result = await asyncio.to_thread(command, action)
+            state.CACHE.invalidate()
+            return result
+
     @app.post("/api/workers/{action}", dependencies=[Depends(mutation)])
-    def workers(action: Literal["start", "stop"]):
+    async def workers(action: Literal["start", "stop"]):
+        async with app.state.action_lock:
+            return await asyncio.to_thread(worker_action, action)
+
+    def worker_action(action):
         from goxtrade.runtime import live_process
         from goxtrade.runtime.manage_app import stop_workers
         if action == "start":

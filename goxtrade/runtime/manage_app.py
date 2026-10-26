@@ -31,13 +31,15 @@ def running() -> bool:
 
 
 def broker_flat() -> bool:
+    targets = [target for target in TARGETS.values() if not target["name"].startswith("YOUR_")]
+    # Initial setup has no execution accounts to query; unresolved jobs are checked by the caller.
+    if not targets:
+        return True
     token = login()
     accounts = post("/api/Account/search", {"onlyActiveAccounts": False}, token=token)
     if accounts.get("success") is not True:
         raise RuntimeError("Could not verify Topstep accounts")
-    for target in TARGETS.values():
-        if target["name"].startswith("YOUR_"):
-            continue
+    for target in targets:
         if not any(row.get("id") == target["id"] and row.get("name") == target["name"] for row in accounts.get("accounts", [])):
             raise RuntimeError("Topstep account identity could not be verified")
         for endpoint, key in (("/api/Position/searchOpen", "positions"), ("/api/Order/searchOpen", "orders")):

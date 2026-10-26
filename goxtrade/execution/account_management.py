@@ -8,21 +8,21 @@ from goxtrade.runtime import live_process
 from goxtrade.paths import DATA_DIR
 
 
-def assert_idle(conn):
+def assert_idle(conn, action="replacing an account"):
     for profile in ("practice", "leader"):
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name=?", (profile+"_control",)).fetchone():
             row = conn.execute(f"SELECT settings FROM {profile}_control WHERE id=1").fetchone()
             if row and json.loads(row[0]).get("enabled"):
-                raise ValueError("Pause both execution profiles before replacing an account")
+                raise ValueError(f"Pause both execution profiles before {action}")
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name=?", (profile+"_jobs",)).fetchone():
             for row in conn.execute(f"SELECT record FROM {profile}_jobs"):
                 if json.loads(row[0]).get("state") not in ("Closed", "Rejected"):
                     raise ValueError("Resolve every open, pending or uncertain bot order first")
 
 
-def assert_workers_stopped():
+def assert_workers_stopped(action="replacing an account"):
     if live_process.status()["running"]:
-        raise ValueError("Stop the market/execution worker before replacing an account")
+        raise ValueError(f"Stop the market/execution worker before {action}")
     pidfile = DATA_DIR / "leader_worker.pid"
     if pidfile.exists():
         try:
@@ -30,7 +30,7 @@ def assert_workers_stopped():
         except (OSError, ValueError) as error:
             raise ValueError("Leader worker status is unknown; verify it is stopped") from error
         if live_process._pid_running(pid):
-            raise ValueError("Stop the Leader worker before replacing an account")
+            raise ValueError(f"Stop the Leader worker before {action}")
 
 
 def replace_account(profile, account_id, confirmed_name):

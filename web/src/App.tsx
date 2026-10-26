@@ -37,6 +37,7 @@ import { TradeManagement } from "./pages/TradeManagement";
 import { ValidationLab } from "./pages/ValidationLab";
 import { MarketReplay } from "./pages/MarketReplay";
 import { Diagnostics } from "./pages/Diagnostics";
+import { SystemControls } from "./SystemControls";
 
 const navigation = [
   {
@@ -280,6 +281,7 @@ export default function App() {
             </span>
           </div>
           <div className="topbar-right">
+            <SystemControls reload={reload} />
             <span className="live-clock">
               {live.session?.time ? ct(live.session.time) : "Chicago / CT"}
             </span>

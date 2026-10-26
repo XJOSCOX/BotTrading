@@ -74,6 +74,51 @@ class NativeApiTests(unittest.TestCase):
             self.assertEqual(self.post("/api/credentials", dict(username="test",api_key="test-key")).status_code, 400)
             save.assert_not_called()
 
+    def test_service_commands_require_csrf_and_validate_actions(self):
+        with patch("goxtrade.runtime.service_control.command", return_value=dict(message="Test only", services={})) as command:
+            self.assertEqual(self.client.post("/api/services/start", json={}).status_code, 403)
+            command.assert_not_called()
+            for action in ("start", "restart", "stop"):
+                self.assertEqual(self.post("/api/services/" + action, {}).status_code, 200)
+            self.assertEqual(command.call_count, 3)
+            self.assertEqual(self.post("/api/services/invalid", {}).status_code, 422)
+            self.assertEqual(command.call_count, 3)
+
+    def test_service_status_does_not_issue_commands(self):
+        with patch("goxtrade.runtime.service_control.status", return_value={"market": {"running": False}}), \
+                patch("goxtrade.runtime.service_control.command") as command:
+            self.assertEqual(self.client.get("/api/services").status_code, 200)
+            command.assert_not_called()
+
+    def test_credential_guard_describes_credentials_not_account_replacement(self):
+        with patch("goxtrade.runtime.live_process.status", return_value=dict(running=True)), \
+                patch.object(projectx_client, "save_credentials") as save:
+            response = self.post("/api/credentials", dict(username="test", api_key="test-key"))
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("changing API credentials", response.json()["detail"])
+            self.assertIn("Pause & stop trading workers", response.json()["detail"])
+            self.assertNotIn("replacing an account", response.text)
+            self.assertNotIn("test-key", response.text)
+            save.assert_not_called()
+
+    def test_credentials_save_only_after_worker_and_idle_checks(self):
+        with patch("goxtrade.execution.account_management.assert_workers_stopped") as stopped, \
+                patch("goxtrade.execution.account_management.assert_idle") as idle, \
+                patch.object(projectx_client, "save_credentials") as save:
+            response = self.post("/api/credentials", dict(username="test", api_key="test-key"))
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("changing API credentials", stopped.call_args.kwargs["action"])
+            self.assertEqual(idle.call_args.kwargs["action"], "changing API credentials")
+            save.assert_called_once_with("test", "test-key")
+
+    def test_credentials_do_not_save_with_unresolved_orders(self):
+        with patch("goxtrade.execution.account_management.assert_workers_stopped"), \
+                patch("goxtrade.execution.account_management.assert_idle", side_effect=ValueError("Resolve every open, pending or uncertain bot order first")), \
+                patch.object(projectx_client, "save_credentials") as save:
+            response = self.post("/api/credentials", dict(username="test", api_key="test-key"))
+            self.assertEqual(response.status_code, 400)
+            save.assert_not_called()
+
     def test_policy_accepts_leader_indicator_selection_but_refuses_invalid_quantity(self):
         policy = dict(strategies=["VWAP EMA Cross"], quantities=dict(MNQ=2,MES=2,MYM=2), cooldown=5, enable_mym=False)
         with patch("goxtrade.execution.leader_execution.command") as command:

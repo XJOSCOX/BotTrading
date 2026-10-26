@@ -2,6 +2,9 @@ import { useState } from "react";
 import { ct, money, type Json } from "../api";
 import { Badge, Empty, Metric, Table } from "../components";
 import { type PageProps, tone, fresh } from "../pageTypes";
+import { EquityScene } from "./EquityScene";
+import { Activity, ShieldCheck, ArrowUpRight } from "lucide-react";
+import "./Dashboard.css";
 
 export function Dashboard({ live, profile }: PageProps) {
   const [period, setPeriod] = useState("All saved"),
@@ -70,7 +73,7 @@ export function Dashboard({ live, profile }: PageProps) {
   const health = p.broker || {},
     synced = fresh(health.updated_at) && !health.error;
   return (
-    <>
+    <div className="dashboard-3d">
       <div className="filters">
         <div className="segmented">
           {["Today", "7 days", "30 days", "All saved"].map((v) => (
@@ -93,6 +96,7 @@ export function Dashboard({ live, profile }: PageProps) {
         </select>
       </div>
       <div className="context-bar">
+        <Activity size={15} />
         <Badge tone={p.settings?.enabled ? "positive" : ""}>
           {p.settings?.enabled ? "Entries enabled" : "Entries paused"}
         </Badge>
@@ -142,9 +146,21 @@ export function Dashboard({ live, profile }: PageProps) {
         <section>
           <div className="section-heading">
             <h2>Realized equity</h2>
-            <span>{rows.length} matched executions</span>
+            <span className="equity-label">
+              USD / CLOSED TRADES <Badge>3D</Badge>
+            </span>
           </div>
-          <Equity values={curve} />
+          <EquityScene
+            history={JSON.stringify(
+              rows.map((r) => ({
+                net: r.net,
+                symbol: r.symbol,
+                strategy: r.strategy,
+                closed: r.closed_at,
+              })),
+            )}
+            fallback={<Equity values={curve} />}
+          />
           <div className="minor-metrics">
             <Metric
               label="Average win"
@@ -165,6 +181,29 @@ export function Dashboard({ live, profile }: PageProps) {
           </div>
         </section>
         <section className="aside-divider">
+          <div className="dashboard-status">
+            <div className="section-heading">
+              <h2>Execution status</h2>
+              <ShieldCheck size={17} />
+            </div>
+            <div className="detail-row">
+              <span>Broker connection</span>
+              <b className={synced ? "positive" : "warning"}>
+                {synced ? "Verified" : "Unverified"}
+              </b>
+            </div>
+            <div className="detail-row">
+              <span>Open positions</span>
+              <b>{synced ? health.positions?.length || 0 : "--"}</b>
+            </div>
+            <div className="detail-row">
+              <span>Working orders</span>
+              <b>{synced ? health.orders?.length || 0 : "--"}</b>
+            </div>
+            <a href="#execution">
+              View execution <ArrowUpRight size={14} />
+            </a>
+          </div>
           <div className="section-heading">
             <h2>Strategy performance</h2>
           </div>
@@ -178,6 +217,15 @@ export function Dashboard({ live, profile }: PageProps) {
                   </small>
                 </div>
                 <strong className={tone(r.net)}>{money(r.net)}</strong>
+                <span className="rank-track">
+                  <i
+                    style={{
+                      width: `${Math.max(2, (Math.abs(r.net) / Math.max(1, ...ranks.map((x) => Math.abs(x.net)))) * 100)}%`,
+                      background:
+                        r.net < 0 ? "var(--negative)" : "var(--positive)",
+                    }}
+                  />
+                </span>
               </div>
             ))
           ) : (
@@ -230,11 +278,14 @@ export function Dashboard({ live, profile }: PageProps) {
       />
       <div className="footnote">
         Watch signals, manual trades and tests are excluded.{" "}
-        {jobs.filter((j: Json) => j.state === "Closed").length - all.length}{" "}
+        {Math.max(
+          0,
+          jobs.filter((j: Json) => j.state === "Closed").length - all.length,
+        )}{" "}
         unmatched closed jobs excluded.{" "}
         {rows.length < 20 ? "Small sample: fewer than 20 closed trades." : ""}
       </div>
-    </>
+    </div>
   );
 }
 

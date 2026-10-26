@@ -1,0 +1,57 @@
+.system-controls .section-heading {
+  margin-bottom: 20px;
+}
+.system-controls h2 {
+  font-size: 20px;
+}
+.system-controls .service-state {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  border-bottom: 1px solid var(--border);
+  padding: 14px 0;
+  font-size: 14px;
+}
+.system-controls .service-state b {
+  flex-shrink: 0;
+  font-size: 13px;
+}
+.system-controls .service-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 23px 0 16px;
+}
+.system-controls .service-actions button:not(.icon) {
+  flex: 1;
+  white-space: nowrap;
+}
+.system-controls .service-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.system-controls .service-error {
+  color: var(--negative);
+  padding: 12px;
+  border-left: 2px solid var(--negative);
+  background: #efa3a309;
+  font-size: 14px;
+}
+.system-controls .footnote {
+  line-height: 1.8;
+  margin-top: 16px;
+}
+@media (max-width: 400px) {
+  .system-controls {
+    padding: 18px;
+  }
+  .system-controls .service-actions button:not(.icon) {
+    font-size: 12px;
+    padding-inline: 9px;
+  }
+}

@@ -1,0 +1,310 @@
+.dashboard-3d {
+  min-width: 0;
+}
+.dashboard-3d .filters {
+  margin-bottom: 12px;
+}
+.dashboard-3d .context-bar {
+  margin-bottom: 24px;
+  padding: 12px 0 17px;
+}
+.dashboard-3d .metric-band {
+  padding: 0 0 24px;
+  margin-bottom: 0;
+}
+.dashboard-3d .metric > strong {
+  font-size: 27px;
+}
+.dashboard-3d .metric-band > .metric:first-child > strong {
+  font-size: 36px;
+}
+.dashboard-3d .analysis-grid {
+  grid-template-columns: minmax(0, 3fr) minmax(260px, 1fr);
+  gap: 28px;
+  padding: 26px 0;
+  margin-bottom: 26px;
+}
+.dashboard-3d .section-heading {
+  margin-bottom: 15px;
+}
+.dashboard-3d .equity-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 11px;
+  color: #a0a59f;
+}
+.dashboard-3d .equity-label .badge {
+  background: transparent;
+}
+.dashboard-3d .equity-stage {
+  position: relative;
+  height: 415px;
+  overflow: hidden;
+}
+.dashboard-3d .equity-stage.expanded {
+  height: 620px;
+}
+.dashboard-3d .equity-canvas {
+  position: absolute;
+  inset: 44px 0 65px;
+}
+.dashboard-3d .equity-canvas canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y;
+  outline-offset: -3px;
+}
+.dashboard-3d .equity-toolbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.dashboard-3d .equity-domain {
+  display: flex;
+  gap: 20px;
+  color: #959f98;
+  font-size: 11px;
+  flex-wrap: wrap;
+}
+.dashboard-3d .equity-domain b {
+  font-weight: 500;
+  color: #d0d8d2;
+  margin-left: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-3d .equity-tools {
+  display: flex;
+  flex-shrink: 0;
+}
+.dashboard-3d .equity-tools button[aria-pressed="true"] {
+  background: #303c35;
+  color: #a9e4c8;
+}
+.dashboard-3d .equity-message {
+  position: absolute;
+  inset: 115px 12px auto;
+  text-align: center;
+  pointer-events: none;
+  color: #9ba69f;
+  font-size: 13px;
+}
+.dashboard-3d .equity-message strong {
+  display: block;
+  color: #e0e5e1;
+  font-size: 18px;
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.dashboard-3d .equity-message span {
+  display: block;
+}
+.dashboard-3d .equity-caption {
+  position: absolute;
+  bottom: 21px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 30px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: #a6b0aa;
+}
+.dashboard-3d .equity-caption > :last-child {
+  margin-left: auto;
+  font-size: 15px;
+}
+.dashboard-3d .equity-caption b {
+  color: #e1e8e3;
+  font-weight: 500;
+}
+.dashboard-3d .equity-key {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.dashboard-3d .equity-key i {
+  width: 16px;
+  height: 3px;
+  background: #8bcbb1;
+}
+.dashboard-3d .equity-scrub {
+  position: absolute;
+  bottom: 0;
+  height: 16px;
+  padding: 0;
+  accent-color: #8bcbb1;
+  cursor: pointer;
+}
+.dashboard-3d .equity-fallback {
+  padding-top: 20px;
+  color: #a0a59f;
+  font-size: 12px;
+}
+.dashboard-3d .minor-metrics {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+}
+.dashboard-3d .minor-metrics .metric > strong {
+  font-size: 20px;
+}
+.dashboard-3d .dashboard-status {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 21px;
+  margin-bottom: 25px;
+}
+.dashboard-3d .dashboard-status .section-heading svg {
+  color: #9db6a7;
+}
+.dashboard-3d .dashboard-status a {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  color: #c0d4c7;
+  font-size: 12px;
+  width: fit-content;
+}
+.dashboard-3d .detail-row {
+  font-size: 13px;
+  padding: 10px 0;
+}
+.dashboard-3d .rank-row {
+  position: relative;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 13px 0 18px;
+}
+.dashboard-3d .rank-row b {
+  font-weight: 500;
+}
+.dashboard-3d .rank-row strong {
+  font-size: 14px;
+}
+.dashboard-3d .rank-track {
+  display: block;
+  width: 100%;
+  height: 3px;
+  background: #ffffff09;
+}
+.dashboard-3d .rank-track i {
+  display: block;
+  height: 3px;
+  opacity: 0.7;
+}
+.dashboard-3d .table-scroll {
+  border-radius: 0;
+}
+.dashboard-3d .table-scroll th {
+  background: transparent;
+  padding-block: 11px;
+}
+.dashboard-3d .table-scroll td {
+  padding-block: 15px;
+}
+.dashboard-3d .table-scroll table {
+  min-width: 700px;
+}
+@media (min-width: 1900px) {
+  .dashboard-3d .equity-stage {
+    height: 490px;
+  }
+  .dashboard-3d .equity-stage.expanded {
+    height: 700px;
+  }
+}
+@media (max-width: 1200px) {
+  .dashboard-3d .analysis-grid {
+    grid-template-columns: minmax(0, 2fr) minmax(230px, 1fr);
+    gap: 20px;
+  }
+  .dashboard-3d .metric > strong {
+    font-size: 23px;
+  }
+  .dashboard-3d .metric-band > .metric:first-child > strong {
+    font-size: 29px;
+  }
+}
+@media (max-width: 950px) {
+  .dashboard-3d .analysis-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .dashboard-3d .aside-divider {
+    border-left: 0;
+    padding-left: 0;
+    border-top: 1px solid var(--border);
+    padding-top: 24px;
+  }
+}
+@media (max-width: 650px) {
+  .dashboard-3d .filters {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .dashboard-3d .filters select {
+    width: 100%;
+  }
+  .dashboard-3d .segmented {
+    display: flex;
+  }
+  .dashboard-3d .segmented button {
+    flex: 1;
+    padding-inline: 7px;
+  }
+  .dashboard-3d .context-bar {
+    gap: 10px;
+  }
+  .dashboard-3d .context-bar .push {
+    margin-left: 0;
+  }
+  .dashboard-3d .metric-band {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 0;
+  }
+  .dashboard-3d .metric-band .metric:first-child {
+    grid-column: 1 / -1;
+    border: 0;
+  }
+  .dashboard-3d .metric-band .metric:nth-child(even) {
+    padding-left: 0;
+  }
+  .dashboard-3d .metric-band .metric:nth-child(odd) {
+    border-right: 0;
+  }
+  .dashboard-3d .equity-stage {
+    height: 340px;
+  }
+  .dashboard-3d .equity-stage.expanded {
+    height: 510px;
+  }
+  .dashboard-3d .equity-domain {
+    gap: 3px;
+    flex-direction: column;
+  }
+  .dashboard-3d .equity-caption {
+    font-size: 11px;
+    gap: 5px 10px;
+  }
+  .dashboard-3d .equity-caption > :last-child {
+    font-size: 13px;
+  }
+  .dashboard-3d .equity-label {
+    font-size: 10px;
+    gap: 5px;
+  }
+  .dashboard-3d .minor-metrics {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 0;
+  }
+  .dashboard-3d .minor-metrics .metric {
+    padding-left: 0;
+    border: 0;
+  }
+}
