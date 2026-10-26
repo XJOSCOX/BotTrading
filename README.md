@@ -166,7 +166,26 @@ forward-paper, broker Practice and Leader P&L separate. No verified profitabilit
 claimed. Read [VWAP_EMA_CROSS.md](docs/VWAP_EMA_CROSS.md) for formulas, account opt-ins,
 data coverage, risk snapshots, schema additions, fill assumptions and known limitations.
 
-Run offline unit tests with `python -m unittest discover`. Browser checks live in `tests/` and require a local app and Playwright with Edge; run them as modules, such as `python -m tests.test_leader_browser`. They do not submit orders. `python -m scripts.practice_smoke_test` places broker orders; review it before use.
+Run offline unit tests with `python -m unittest discover`. Browser checks live in `tests/` and require a local app and Playwright with Edge; run them as modules, such as `python -m tests.test_leader_browser`. They do not submit orders.
+
+## Practice Execution Validation
+
+Run `python -m scripts.practice_execution_validation` for an explicit read-only
+ProjectX preflight. It validates the designated identity, exposure, persistent
+loss gate, MNQ contract specifications, schedule, live bid/ask/trade freshness
+and historical bars. Sanitized results are saved under ignored
+`data/verification/practice-execution-readonly.json`; blocked readiness returns
+a nonzero status. Imports and automated tests never make real broker requests.
+
+This milestone has **no real-order submission or close transport**. Even
+`--request-order` only checks readiness and exits blocked. Independent provider
+proof of Practice category, verified bracket mode, a reviewed calendar and
+separate order-specific entry/close approvals remain required. A simulated
+account or PRAC name alone does not establish Practice category. The old
+`scripts.practice_smoke_test` entry point now delegates to this read-only command;
+it no longer performs an unconfirmed market entry and automatic close.
+See [Practice Execution Validation](docs/PRACTICE_EXECUTION_VALIDATION.md) for
+actual provider evidence, mocked coverage and outstanding execution blockers.
 
 ## Strategy Manager
 
