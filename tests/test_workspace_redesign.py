@@ -126,7 +126,8 @@ class WorkspaceUiTests(unittest.TestCase):
             if name == "goxtrade.config.execution_target":
                 raise ModuleNotFoundError("Missing local configuration", name=name)
             return original(name, *args, **kwargs)
-        with patch("builtins.__import__", side_effect=without_local):
+        with tempfile.TemporaryDirectory() as folder, patch("goxtrade.paths.DATA_DIR",Path(folder)), \
+                patch("builtins.__import__", side_effect=without_local):
             values = runpy.run_path(identity.__file__)
         self.assertTrue(values["TARGETS"]["practice"]["name"].startswith("YOUR_"))
         self.assertTrue(values["TARGETS"]["leader"]["name"].startswith("YOUR_"))

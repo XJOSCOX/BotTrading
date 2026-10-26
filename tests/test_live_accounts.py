@@ -13,7 +13,11 @@ class LiveAccountsTests(unittest.TestCase):
             dict(id=3, name="TEST_FOLLOWER", canTrade=True),
             dict(id=4, name="TEST_LEADER", canTrade=True),
         ]
-        with patch.object(Path,"read_text",return_value='{"leader":"TEST_LEADER","followers":["TEST_FOLLOWER"]}'):
+        from goxtrade.config import execution_identity
+        with tempfile.TemporaryDirectory() as folder, \
+                patch.object(live_accounts,"COPY_PROFILE",Path(folder)/"copy.json"), \
+                patch.object(execution_identity,"ACCOUNT_FILE",Path(folder)/"missing-identity.json"):
+            live_accounts.COPY_PROFILE.write_text('{"leader":"TEST_LEADER","followers":["TEST_FOLLOWER"]}',encoding="utf-8")
             self.assertEqual([a["id"] for a in live_accounts.enabled_accounts(accounts)], [4,3])
             self.assertEqual(live_accounts.copy_role(accounts[2]), "Follower")
 

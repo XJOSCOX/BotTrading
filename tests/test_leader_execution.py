@@ -11,7 +11,7 @@ from goxtrade.execution import practice_executor
 from goxtrade.execution import practice_safety
 from goxtrade.bot import bot_controls
 from goxtrade.bot import bot_audit
-from goxtrade.config.execution_target import TARGETS
+from goxtrade.config.execution_identity import TARGETS
 
 
 class LeaderIsolationTests(unittest.TestCase):
@@ -30,7 +30,7 @@ from goxtrade.execution import practice_safety as safety
 from goxtrade.bot import bot_audit
 from goxtrade.bot import bot_health
 from goxtrade.bot import bot_controls
-from goxtrade.config.execution_target import TARGETS
+from goxtrade.config.execution_identity import TARGETS
 assert e.ACCOUNT_ID == TARGETS['leader']['id']
 assert e.ACCOUNT_NAME == TARGETS['leader']['name']
 e.configure(dict(MNQ=3,MES=3,MYM=3),False)
