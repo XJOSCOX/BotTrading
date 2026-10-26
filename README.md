@@ -177,13 +177,15 @@ and historical bars. Sanitized results are saved under ignored
 `data/verification/practice-execution-readonly.json`; blocked readiness returns
 a nonzero status. Imports and automated tests never make real broker requests.
 
-This milestone has **no real-order submission or close transport**. Even
-`--request-order` only checks readiness and exits blocked. Independent provider
-proof of Practice category, verified bracket mode, a reviewed calendar and
-separate order-specific entry/close approvals remain required. A simulated
-account or PRAC name alone does not establish Practice category. The old
-`scripts.practice_smoke_test` entry point now delegates to this read-only command;
-it no longer performs an unconfirmed market entry and automatic close.
+The default and `--request-order` remain read-only. Phase 10 adds explicitly gated
+`--mode` actions for operator-reviewed provider evidence, calendar review, one-MNQ
+proposals, separate interactive entry/full-close approvals and reconciliation.
+Nothing submits automatically. A simulated account or PRAC name alone does not
+establish Practice category. The legacy `scripts.practice_smoke_test` alias shares
+this command and its gates; its default no longer performs a market round trip.
+Read [Controlled Practice Round Trip](docs/PRACTICE_ORDER_ROUNDTRIP.md) before
+using any explicit order mode. Leader is excluded, and no account or strategy is
+armed by this workflow.
 See [Practice Execution Validation](docs/PRACTICE_EXECUTION_VALIDATION.md) for
 actual provider evidence, mocked coverage and outstanding execution blockers.
 
