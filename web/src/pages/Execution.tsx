@@ -95,67 +95,21 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
               authorization.
             </Notice>
           )}
-          {profile === "leader" && (
-            <button
-              className="primary"
-              disabled={
-                busy ||
-                !credential ||
-                !valid ||
-                settings.enabled ||
-                config.restart_required
-              }
-              onClick={() => open("arm")}
-            >
-              <Play size={16} />
-              Start {profile}
-            </button>
-          )}
-          {profile === "practice" && (
-            <>
-              <h3>Saved entry settings</h3>
-              <p>{(config.policies?.practice?.strategies || []).join(", ")}</p>
-              <p>{(config.policies?.practice?.symbols || []).map((s: string) => `${s}: ${settings.quantities?.[s] ?? "Not set"}`).join(" / ")}</p>
-              <button
-                className="primary"
-                disabled={
-                  busy ||
-                  !credential ||
-                  !valid ||
-                  settings.enabled ||
-                  !savedStrategies.length ||
-                  config.restart_required
-                }
-                onClick={() => open("start")}
-              >
-                <Play size={16} />
-                Start Practice automation
-              </button>
-              {automation && (
-                <p className="runtime-message">
-                  {automation.policy.symbols.join(", ")} ·{" "}
-                  {automation.strategies.join(", ")} · Manager
-                  arbitration
-                </p>
-              )}
-              {automation &&
-                (live.monitor || [])
-                  .filter(
-                    (r: Json) =>
-                      r.symbol === "NQ=F" &&
-                      automation.strategies.includes(
-                        r.signal?.strategy_id,
-                      ),
-                  )
-                  .map((r: Json) => (
-                    <div key={r.strategy}>
-                      <h3>{r.strategy}</h3>
-                      <Badge>{r.signal?.signal || "WAIT"}</Badge>
-                      <p>{r.signal?.reason || r.indicator_snapshot?.reason}</p>
-                    </div>
-                  ))}
-            </>
-          )}
+          <button
+            className="primary"
+            disabled={
+              busy ||
+              !credential ||
+              !valid ||
+              settings.enabled ||
+              (profile === "practice" && !savedStrategies.length) ||
+              config.restart_required
+            }
+            onClick={() => open(profile === "practice" ? "start" : "arm")}
+          >
+            <Play size={16} />
+            {profile === "practice" ? "Start Practice automation" : "Start Leader"}
+          </button>
           <button
             disabled={busy}
             onClick={() =>
@@ -166,9 +120,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             }
           >
             <Pause size={16} />
-            {profile === "practice" && automation
-              ? "Pause Practice entries"
-              : "Pause new entries"}
+            Pause new entries
           </button>
           {profile === "leader" && !valid && (
             <button

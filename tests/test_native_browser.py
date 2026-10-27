@@ -48,6 +48,13 @@ def run():
                 if width>1150:
                     assert page.locator("main").evaluate("el=>el.getBoundingClientRect().left===document.querySelector('.sidebar').getBoundingClientRect().right"),(device,name,"Content should align with navigation")
                 assert not errors,errors
+                if name=="Execution":
+                    for profile in ("leader","practice"):
+                        page.get_by_label("Account view").select_option(profile)
+                        expect(page.locator(".run-panel h2")).to_have_text("Run controls")
+                        expect(page.locator(".run-panel h3")).to_have_count(0)
+                        expect(page.get_by_role("heading",name="Saved entry settings",exact=True)).to_have_count(0)
+                        expect(page.locator(".run-panel .minor-metrics")).to_have_count(1)
                 if name=="Charts":
                     page.locator("canvas").first.wait_for(timeout=30000)
                     page.wait_for_timeout(500)
