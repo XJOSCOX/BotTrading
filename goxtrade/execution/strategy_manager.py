@@ -100,7 +100,8 @@ def eligibility(candidate, state, policy, now, scope):
         if not state.session_allowed:
             return "EXECUTION_DISABLED", state.session_reason
         if scope == "broker":
-            return "EXECUTION_DISABLED", "Manager broker cutover is prohibited in this milestone"
+            if state.profile != "practice" or state.practice_session_authorized is not True or not state.armed or not state.reconciled:
+                return "EXECUTION_DISABLED", "Explicit freshly reconciled Practice strategy session required; Leader remains prohibited"
         if scope == "shadow" and (not state.reconciled or not state.armed):
             return "EXECUTION_DISABLED", "Broker reconciliation/arming is not freshly verified; shadow only"
         return "ELIGIBLE", "Historical eligibility verified; broker preflight not performed"
@@ -127,7 +128,7 @@ def evaluate(candidates, state, policy=None, now=None, *, scope="historical"):
             status, reason = "EXECUTION_DISABLED", "Evidence ranking unavailable: reviewed out-of-sample ranking artifact required"
         decision = ExecutionDecision(candidate.candidate_id, candidate.strategy_id, candidate.profile, group, current,
                                      status, (reason,), policy_version=policy.version, mode=policy.mode,
-                                     checks_scope="broker_not_authorized" if scope == "broker" else "shadow_not_preflight" if scope == "shadow" else "historical_only")
+                                     checks_scope="practice_preflight" if scope == "broker" and state.profile == "practice" and state.practice_session_authorized is True else "broker_not_authorized" if scope == "broker" else "shadow_not_preflight" if scope == "shadow" else "historical_only")
         decisions[candidate.candidate_id] = decision
         if status == "ELIGIBLE":
             eligible.append(candidate)
@@ -147,7 +148,7 @@ def evaluate(candidates, state, policy=None, now=None, *, scope="historical"):
         decisions[candidate.candidate_id] = replace(decisions[candidate.candidate_id], selected=True,
             selected_candidate_id=candidate.candidate_id, support=supports[candidate.candidate_id],
             planned_risk=risk["planned_risk"], available_budget=risk["available_budget"], quantity=risk["quantity"],
-            reasons=(risk["reason"],), execution_status="WOULD_SELECT" if scope == "shadow" else "SIMULATION_SELECTED")
+            reasons=(risk["reason"],), execution_status="PRACTICE_SELECTED" if scope == "broker" else "WOULD_SELECT" if scope == "shadow" else "SIMULATION_SELECTED")
         exposure = Exposure(candidate.symbol, candidate.contract_id, candidate.direction, risk["quantity"],
                             candidate.price, candidate.stop, candidate.strategy_id, candidate.candidate_id, protected=True, status="reserved")
         working = replace(working, reservations=(*working.reservations, exposure))

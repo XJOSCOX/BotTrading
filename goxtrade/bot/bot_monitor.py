@@ -143,6 +143,9 @@ def monitor_once():
             latest = data[symbol]["time"].max() if not data[symbol].empty else None
             result["feed_fresh"] = latest is not None and 0 <= (session["time"] - latest).total_seconds() <= 10
             result["quote_time"] = latest.isoformat() if latest is not None else None
+            if "source_feed_fresh" in result:
+                result["feed_fresh"] = result["source_feed_fresh"]
+                result["quote_time"] = result["source_quote_time"]
             with closing(connect()) as conn:
                 init_status(conn)
                 conn.execute("INSERT OR REPLACE INTO bot_monitor_status VALUES (?,?,?)", (symbol, strategy, json.dumps(result, default=str)))

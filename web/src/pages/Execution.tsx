@@ -19,6 +19,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
     [name, setName] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [ack, setAck] = useState(false),
+    [testStrategy, setTestStrategy] = useState("vwap_ema_cross"),
     [tab, setTab] = useState("Order attempts");
   const valid = fresh(runtime.updated_at),
     credential = !!config.credentials_present,
@@ -29,6 +30,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
       name,
       safeguards: confirmed,
       acknowledge_loss: ack,
+      strategies: [testStrategy],
     });
     if (result) setDialog("");
   };
@@ -67,7 +69,8 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                 key={s}
                 label={s}
                 value={
-                  s === "MYM" && !settings.enable_mym
+                  (settings.strategy_testing && s !== "MNQ") ||
+                  (s === "MYM" && !settings.enable_mym)
                     ? "Off"
                     : (settings.quantities?.[s] ?? 2)
                 }
@@ -85,20 +88,76 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
               authorization.
             </Notice>
           )}
-          <button
-            className="primary"
-            disabled={
-              busy ||
-              !credential ||
-              !valid ||
-              settings.enabled ||
-              config.restart_required
-            }
-            onClick={() => open("arm")}
-          >
-            <Play size={16} />
-            Start {profile}
-          </button>
+          {profile === "leader" && (
+            <button
+              className="primary"
+              disabled={
+                busy ||
+                !credential ||
+                !valid ||
+                settings.enabled ||
+                config.restart_required
+              }
+              onClick={() => open("arm")}
+            >
+              <Play size={16} />
+              Start {profile}
+            </button>
+          )}
+          {profile === "practice" && (
+            <>
+              <Field label="Practice test strategy">
+                <select
+                  value={testStrategy}
+                  onChange={(e) => setTestStrategy(e.target.value)}
+                  disabled={busy || settings.enabled}
+                >
+                  {(config.strategies || []).map((s: Json) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <button
+                className="primary"
+                disabled={
+                  busy ||
+                  !credential ||
+                  !valid ||
+                  settings.enabled ||
+                  config.restart_required
+                }
+                onClick={() => open("strategy-test")}
+              >
+                <Play size={16} />
+                Start Practice strategy testing
+              </button>
+              {settings.strategy_testing && (
+                <p className="runtime-message">
+                  MNQ · 1 contract ·{" "}
+                  {settings.strategy_testing.strategies.join(", ")} · Manager
+                  arbitration
+                </p>
+              )}
+              {settings.strategy_testing &&
+                (live.monitor || [])
+                  .filter(
+                    (r: Json) =>
+                      r.symbol === "NQ=F" &&
+                      settings.strategy_testing.strategies.includes(
+                        r.signal?.strategy_id,
+                      ),
+                  )
+                  .map((r: Json) => (
+                    <div key={r.strategy}>
+                      <h3>{r.strategy}</h3>
+                      <Badge>{r.signal?.signal || "WAIT"}</Badge>
+                      <p>{r.signal?.reason || r.indicator_snapshot?.reason}</p>
+                    </div>
+                  ))}
+            </>
+          )}
           <button
             disabled={busy}
             onClick={() =>
@@ -109,7 +168,9 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             }
           >
             <Pause size={16} />
-            Pause new entries
+            {profile === "practice" && settings.strategy_testing
+              ? "Stop Practice strategy testing"
+              : "Pause new entries"}
           </button>
           {profile === "leader" && !valid && (
             <button
@@ -163,17 +224,33 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             </Notice>
           ) : (
             <Table
-              heads={["Contract", "Position", "Average fill"]}
+              heads={["Contract", "Position", "Average fill", "Broker stop"]}
               rows={(p.broker.positions || []).map((r: Json) => [
                 r.contractId,
                 r.size,
                 price(r.averagePrice),
+                (p.broker.orders || [])
+                  .filter(
+                    (o: Json) =>
+                      o.contractId === r.contractId &&
+                      o.type === 4 &&
+                      (p.jobs || []).some(
+                        (j: Json) =>
+                          j.protected &&
+                          j.contract_id === r.contractId &&
+                          o.parentOrderId === j.order_id &&
+                          o.size === j.quantity &&
+                          o.side === 1 - j.side,
+                      ),
+                  )
+                  .map((o: Json) => price(o.stopPrice))
+                  .join(", ") || "Not verified",
               ])}
               empty="Broker reports no open positions"
             />
           )}
           <Tabs
-            values={["Order attempts", "Broker fills"]}
+            values={["Order attempts", "Broker fills", "Rejected signals"]}
             selected={tab}
             onChange={setTab}
           />
@@ -208,6 +285,19 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                 j.error_message || j.close_reason || "--",
               ])}
             />
+          ) : tab === "Rejected signals" ? (
+            <Table
+              heads={["Time / CT", "Alert", "Reason"]}
+              rows={(live.events || [])
+                .filter(
+                  (r: Json) =>
+                    r.kind === "Entry blocked" &&
+                    (profile === "leader") ===
+                      String(r.topic || "").startsWith("leader:"),
+                )
+                .map((r: Json) => [ct(r.time), r.alert_id, r.detail])}
+              empty="No rejected signals recorded"
+            />
           ) : (
             <Table
               heads={[
@@ -237,7 +327,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
       {dialog && (
         <Modal
           title={
-            dialog === "arm"
+            dialog === "arm" || dialog === "strategy-test"
               ? "Authorize " + profile + " trading"
               : "Request emergency close"
           }
@@ -245,8 +335,10 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
         >
           <form onSubmit={submit}>
             <Notice danger>
-              {dialog === "arm"
-                ? "This explicitly enables new automatic entries after broker preflight."
+              {dialog === "arm" || dialog === "strategy-test"
+                ? dialog === "strategy-test"
+                  ? "Starts automatic MNQ Practice entries for the selected strategy, one contract, through the manager. No per-trade approval. Leader remains disabled. Pause stops new entries, not position management."
+                  : "This explicitly enables new automatic entries after broker preflight."
                 : "This pauses entries and requests a close of bot-owned positions. A request is not a confirmed fill."}
             </Notice>
             <Field label={"Type the exact account name: " + target.name}>
@@ -279,15 +371,20 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                   busy ||
                   !confirmed ||
                   name !== target.name ||
-                  (dialog === "arm" && p.gate?.locked && !ack)
+                  ((dialog === "arm" || dialog === "strategy-test") &&
+                    p.gate?.locked &&
+                    !ack)
                 }
               >
-                {dialog === "arm" ? (
+                {dialog === "arm" || dialog === "strategy-test" ? (
                   <Play size={16} />
                 ) : (
                   <ShieldAlert size={16} />
                 )}
-                Confirm {dialog === "arm" ? "start" : "close request"}
+                Confirm{" "}
+                {dialog === "arm" || dialog === "strategy-test"
+                  ? "start"
+                  : "close request"}
               </button>
             </div>
           </form>

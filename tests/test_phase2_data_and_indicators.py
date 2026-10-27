@@ -180,6 +180,7 @@ class ContractHistoryTests(unittest.TestCase):
         from goxtrade.bot.signal_lifecycle import track_signal, alert_history
         from goxtrade.strategies.vwap_ema_runtime import evaluate_status
         source = minutes()
+        source.attrs["contract_id"] = self.contract
         now = source.iloc[-1]["time"]+pd.Timedelta(minutes=1)
         candidate = evaluate_vwap_ema_cross(source, 103., now, VwapEmaConfig(stop_method="fixed"), historical=True)[0]
         live_store.save_trade("NQ=F", self.contract, dict(price=103., volume=1., timestamp=now.isoformat()))

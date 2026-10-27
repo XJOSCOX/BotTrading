@@ -139,6 +139,8 @@ def main() -> None:
         conn.execute("PRAGMA journal_mode=WAL")
     Thread(target=run_monitor, name="strategy-monitor", daemon=True).start()
     Thread(target=run_practice, name="practice-executor", daemon=True).start()
+    from goxtrade.execution.practice_history import run as run_history
+    Thread(target=run_history, name="practice-history-readonly", daemon=True).start()
     feed_symbols = list(dict.fromkeys([*load_symbols(), *SYMBOLS, *MICRO_SYMBOLS]))
     delay = 30
     rejected_credentials = None

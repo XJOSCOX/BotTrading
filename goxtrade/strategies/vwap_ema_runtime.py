@@ -19,16 +19,18 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
         config = VwapEmaConfig(monitor_enabled=False)
         configuration_error = f"Invalid strategy settings: {error}. New entries disabled; existing signal exits remain monitored."
         allow_new = False
-    contract = contract_for_symbol(symbol)
+    micro = {"NQ=F":"MNQ=F","ES=F":"MES=F","YM=F":"MYM=F"}.get(symbol,symbol)
+    source_symbol = micro if micro in config.enabled_symbols else symbol
+    contract = contract_for_symbol(source_symbol)
     now = pd.Timestamp(session["time"])
-    minutes = load_strategy_minutes(symbol, contract, now)
-    tick = latest_trade(symbol, contract)
+    minutes = load_strategy_minutes(source_symbol, contract, now)
+    tick = latest_trade(source_symbol, contract)
     fresh = bool(tick) and all(
         pd.notna(stamp := pd.to_datetime(tick[field], utc=True, errors="coerce"))
         and 0 <= (now-stamp).total_seconds() <= config.max_data_age_seconds
         for field in ("event_time", "received_at")
     )
-    identity = f"vwap_ema_cross|{symbol}|{contract}|{config.fingerprint}"
+    identity = f"vwap_ema_cross|{source_symbol}|{contract}|{config.fingerprint}"
     persisted_previous = strategy_events.observation(identity)
     previous = dict(persisted_previous)
     prior_event = strategy_events.latest_event(symbol, contract)
@@ -37,9 +39,9 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
     candidate, candles, updated = evaluate_vwap_ema_cross(
         minutes, tick["price"] if tick else None, now, config, previous,
         sequence=tick["id"] if tick else None, quote_time=tick["event_time"] if fresh else None,
-        symbol=symbol,
+        symbol=source_symbol,
     )
-    candidate.update(symbol=symbol, source_contract=contract)
+    candidate.update(symbol=symbol, reference_symbol=source_symbol, source_contract=contract)
     if configuration_error:
         candidate["reason"] = candidate["trigger_detail"] = configuration_error
     persisted = strategy_events.persist(identity, persisted_previous, updated, candidate)
@@ -75,4 +77,5 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
     focus = f"{ema:,.2f} / {vwap:,.2f}" if ema is not None and vwap is not None else "--"
     return dict(signal=signal, timeframe=f"{config.signal_minutes} min", focus_label=f"EMA{config.ema_length} / VWAP",
                 focus_value=focus, entry_mode=config.entry_mode, monitor_enabled=config.monitor_enabled,
-                candles=candles, indicator_snapshot=candidate, forward_paper=paper)
+                candles=candles, indicator_snapshot=candidate, forward_paper=paper,
+                source_quote_time=tick["event_time"] if tick else None, source_feed_fresh=fresh)

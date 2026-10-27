@@ -58,6 +58,7 @@ class Authorization(Body):
     name: str
     safeguards: StrictBool
     acknowledge_loss: StrictBool = False
+    strategies: list[str] = Field(default_factory=lambda:["vwap_ema_cross"],min_length=1,max_length=7)
 
 
 class ClearAlerts(Body):
@@ -303,7 +304,7 @@ def create_app():
         return dict(message="Replacement saved. Restart the interface and workers before explicit authorization.")
 
     @app.post("/api/execution/{profile}/{action}", dependencies=[Depends(mutation)])
-    async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor"], body: Authorization):
+    async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor", "strategy-test"], body: Authorization):
         async with app.state.action_lock:
             return await asyncio.to_thread(execute, profile, action, body)
 
@@ -596,11 +597,13 @@ def create_app():
 def execute(profile, action, body):
     from goxtrade.execution import practice_executor, leader_execution
     target = identity.TARGETS[profile]
-    if action in ("arm", "emergency") and (body.name != target["name"] or not body.safeguards):
+    if action == "strategy-test" and profile != "practice":
+        raise ValueError("Strategy testing cannot authorize Leader")
+    if action in ("arm", "emergency", "strategy-test") and (body.name != target["name"] or not body.safeguards):
         raise ValueError("Confirm the exact execution account and protective/copy safeguards")
-    if action in ("arm", "monitor"):
+    if action in ("arm", "monitor", "strategy-test"):
         identity.assert_current(profile)
-    if action == "arm":
+    if action in ("arm", "strategy-test"):
         from datetime import datetime, timezone
         runtime = (practice_executor.snapshot() if profile == "practice" else leader_execution.snapshot())[1]
         try:
@@ -609,6 +612,8 @@ def execute(profile, action, body):
             elapsed = float("inf")
         if not 0 <= elapsed < 45 or runtime.get("account_id") != target["id"]:
             raise ValueError("A fresh worker for this exact account must be online before authorization")
+        if action == "strategy-test" and runtime.get("practice_strategy_testing") is not True:
+            raise ValueError("Restart the paused Practice worker to load strategy-testing support before starting")
     if profile == "leader":
         if action == "monitor":
             leader_execution.start_worker()
@@ -619,7 +624,10 @@ def execute(profile, action, body):
         else:
             leader_execution.command(action, confirmed_account=target["name"])
     else:
-        if action == "arm":
+        if action == "strategy-test":
+            from goxtrade.execution.practice_strategy_testing import start
+            start(body.strategies,body.name,body.safeguards)
+        elif action == "arm":
             settings = practice_executor.snapshot()[0]
             practice_executor.arm(500, 500, True, quantities=settings.get("quantities", dict(MNQ=2, MES=2, MYM=2)),
                                   acknowledge_loss=body.acknowledge_loss, enable_mym=settings.get("enable_mym", False))

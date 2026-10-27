@@ -67,6 +67,7 @@ class PortfolioState:
     session_reason: str = "Session eligibility unavailable"
     consumed: tuple = ()
     contracts: tuple = ()  # Explicit (instrument, active actual contract) pairs.
+    practice_session_authorized: bool = False
 
     def to_dict(self):
         return asdict(self)

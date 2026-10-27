@@ -119,13 +119,15 @@ def track_signal(symbol, strategy, candidate, setup_id, allow_new, management_ba
                     break
         if event and conn.execute("SELECT 1 FROM strategy_event_consumption WHERE setup_id=?", (event,)).fetchone():
             allow_new = False
-        box_active = (state.get("active") or candidate).get("strategy_id")=="previous_day_box"
+        source = state.get("active") or candidate
+        source_symbol = source.get("reference_symbol") or symbol
+        box_active = source.get("strategy_id") in ("previous_day_box","vwap_ema_cross")
         contract_filter = " AND contract_id=? AND event_type='trade'" if box_active else ""
         contract_args = ((state.get("active") or candidate).get("source_contract"),) if box_active else ()
         if state.get("active"):
-            ticks = conn.execute(f"SELECT id, price,event_time,received_at FROM live_ticks WHERE symbol=? AND id>? AND {price_predicate(symbol)}{contract_filter} ORDER BY id", (symbol, state["cursor"],*contract_args)).fetchall()
+            ticks = conn.execute(f"SELECT id, price,event_time,received_at FROM live_ticks WHERE symbol=? AND id>? AND {price_predicate(source_symbol)}{contract_filter} ORDER BY id", (source_symbol, state["cursor"],*contract_args)).fetchall()
         else:
-            ticks = conn.execute(f"SELECT id, price FROM live_ticks WHERE symbol=? AND {price_predicate(symbol)}{contract_filter} ORDER BY id DESC LIMIT 1", (symbol,*contract_args)).fetchall()
+            ticks = conn.execute(f"SELECT id, price FROM live_ticks WHERE symbol=? AND {price_predicate(source_symbol)}{contract_filter} ORDER BY id DESC LIMIT 1", (source_symbol,*contract_args)).fetchall()
         updated, signal = advance_signal(state, candidate, setup_id, ticks, allow_new, management_bars)
         active = updated.get('active') or state.get('active')
         if active and not updated.get('event_id'):

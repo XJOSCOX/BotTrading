@@ -3,6 +3,8 @@ import json
 import math
 import time
 import requests
+import sqlite3
+import logging
 from contextlib import closing
 from datetime import datetime, timezone
 from threading import Event
@@ -63,7 +65,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_strategy_testing=PROFILE=="practice", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)
@@ -98,6 +100,11 @@ def claim(job):
     with closing(db()) as conn:
         conn.execute("BEGIN IMMEDIATE")
         assert_other_idle(conn)
+        current_settings=json.loads(conn.execute(f"SELECT settings FROM {PROFILE}_control WHERE id=1").fetchone()[0])
+        session_id=(current_settings.get("strategy_testing") or {}).get("id")
+        if session_id or job.get("strategy_testing_session"):
+            if not current_settings.get("enabled") or session_id != job.get("strategy_testing_session") or PROFILE != "practice":
+                return False
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
             signal = conn.execute("SELECT record FROM bot_alert_history WHERE id=?",(job["alert_id"],)).fetchone()
             if signal:
@@ -190,7 +197,7 @@ def quote_fresh(result, now):
         return False
 
 
-def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False):
+def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False, strategy_testing=None):
     assert_current()
     if confirmed is not True:
         raise ValueError("Confirm isolated Practice account and Auto OCO Brackets")
@@ -210,9 +217,12 @@ def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_lo
         raise ValueError("Practice must be flat with no orders or unresolved executor jobs")
     if gate["locked"]:
         practice_safety.check(account["balance"], acknowledge=True, account_id=TARGET["gate_id"])
+    if strategy_testing and (PROFILE != "practice" or strategy_testing.get("account_id") != ACCOUNT_ID):
+        raise ValueError("Strategy testing requires the exact Practice account")
     control(dict(enabled=True, after_id=max([r["id"] for r in alert_history(10000)] or [0]),
                  max_trade_loss=float(max_trade_loss), max_run_loss=float(max_run_loss),
-                 start_balance=float(account["balance"]), quantities=quantities, enable_mym=enable_mym is True))
+                 start_balance=float(account["balance"]), quantities=quantities, enable_mym=enable_mym is True,
+                 **({"strategy_testing":strategy_testing} if strategy_testing else {})))
     status("Armed for new signals only")
 
 
@@ -244,6 +254,8 @@ def request_emergency_close(confirmed):
 
 
 def symbol_enabled(symbol, settings):
+    if settings.get("strategy_testing"):
+        return PROFILE == "practice" and symbol == "NQ=F"
     return symbol in ("NQ=F", "ES=F") or (symbol == "YM=F" and settings.get("enable_mym") is True)
 
 
@@ -525,7 +537,13 @@ def cycle(token):
         return
     seen = {j["alert_id"] for j in jobs}
     results = read_status()
+    manager_selected = None
+    if settings.get("strategy_testing"):
+        from goxtrade.execution.practice_strategy_testing import selection
+        manager_selected = selection(settings,history.values(),account,gate,positions,orders,jobs)
     for signal in sorted(history.values(), key=lambda r: r["id"]):
+        if manager_selected is not None and signal["id"] not in manager_selected:
+            continue
         permission_error = execution_block(signal, PROFILE)
         if permission_error:
             if signal.get("status") == "Active":
@@ -585,7 +603,8 @@ def cycle(token):
         if any(p["contractId"] == contract["id"] for p in positions) or any(o["contractId"] == contract["id"] for o in orders):
             continue
         try:
-            payload = build_order({**signal,"entry":confirmation["price"]}, contract, overnight_policy.quantity(entry_quantity(settings["quantities"][micro], positions, jobs)))
+            selected_quantity = manager_selected[signal["id"]].quantity if manager_selected is not None else entry_quantity(settings["quantities"][micro], positions, jobs)
+            payload = build_order({**signal,"entry":confirmation["price"]}, contract, overnight_policy.quantity(selected_quantity))
         except ValueError as error:
             status(f"Signal skipped: {error}")
             continue
@@ -594,7 +613,7 @@ def cycle(token):
                    signal_minutes=signal.get("signal_minutes",15),unique_setup_id=signal.get("unique_setup_id"),
                    config_snapshot=signal.get("config_snapshot"),account_profile=PROFILE,
                    entry_policy=signal.get("entry_policy"),config_fingerprint=signal.get("config_fingerprint"),
-                   crossover_key=signal.get("crossover_key"),reference_symbol=signal["symbol"],
+                   crossover_key=signal.get("crossover_key"),reference_symbol=signal.get("reference_symbol") or signal["symbol"],
                    consumption_key=signal.get("consumption_key"),box=signal.get("box"),
                    confirmation_method=signal.get("confirmation_method"),
                    source_contract=signal.get("source_contract"),session_id=signal.get("session_id"),
@@ -603,7 +622,8 @@ def cycle(token):
                    signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
                    sizing_reason="Overnight: capped at 1 contract" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
-                   side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"])
+                   side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"],
+                   strategy_testing_session=(settings.get("strategy_testing") or {}).get("id"))
         if not claim(job):
             continue
         try:
@@ -675,6 +695,19 @@ def cycle(token):
                 bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
                 return
             confirmation = entry_confirmation.check(current_signal)
+            if job.get("strategy_testing_session"):
+                from goxtrade.execution.practice_strategy_testing import selection
+                fresh_settings=snapshot()[0]
+                if (fresh_settings.get("strategy_testing") or {}).get("id") != job["strategy_testing_session"]:
+                    job.update(state="Rejected",error_message="Not submitted: Practice test session changed")
+                    save_job(job)
+                    return
+                selected=selection(fresh_settings,fresh_history,fresh_account,fresh_gate,fresh_positions,fresh_orders,
+                                   snapshot()[2],own_alert=job["alert_id"])
+                if signal["id"] not in selected or selected[signal["id"]].quantity != payload["size"]:
+                    job.update(state="Rejected",error_message="Not submitted: manager selection/risk changed")
+                    save_job(job)
+                    return
             if execution_block(current_signal, PROFILE):
                 job.update(state="Rejected", error_message="Not submitted: strategy execution eligibility changed")
                 save_job(job)
@@ -716,7 +749,8 @@ def cycle(token):
 def recover_connection(error):
     retryable = isinstance(error, (requests.Timeout, requests.ConnectionError)) or (
         isinstance(error, requests.HTTPError) and error.response is not None
-        and (error.response.status_code in (401, 408, 429) or error.response.status_code >= 500))
+        and (error.response.status_code in (401, 408, 429) or error.response.status_code >= 500)) or (
+        isinstance(error,sqlite3.OperationalError) and str(error) in ("database is locked","database table is locked"))
     # Never re-enable here: manual pause and uncertain-submission locks win.
     if retryable:
         bot_audit.emit("connection", "Broker reconnecting", "Temporary API failure; retrying connection. Run/Pause selection preserved; no entries until broker checks succeed.", severity="warning", notify=True)
@@ -740,7 +774,10 @@ def run_practice():
             cycle(token)
             failures = 0
         except Exception as error:
-            recover_connection(error)
+            try:
+                recover_connection(error)
+            except Exception:
+                logging.warning("Execution recovery status unavailable; retrying reconciliation without broker submission")
             failures += 1
             token = None
         Event().wait(min(30, 3 * 2 ** min(failures-1, 4)) if failures else 3 if settings.get("enabled") or settings.get("emergency_close") or any(j["state"] not in ("Closed", "Rejected") for j in jobs) else 15)

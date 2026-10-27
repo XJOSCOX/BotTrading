@@ -109,6 +109,8 @@ class ResearchAccountingTests(unittest.TestCase):
 
 class ForwardSafetyTests(unittest.TestCase):
     def setUp(self):
+        calendar=patch("goxtrade.market.calendar_guard.restriction",return_value=dict(allow_entry=True,flatten=False))
+        calendar.start();self.addCleanup(calendar.stop)
         self.minutes = minutes()
         self.now = self.minutes.iloc[-1]["time"]+pd.Timedelta(minutes=1)
         self.config = VwapEmaConfig(paper_enabled=True, paper_zero_cost_sensitivity=True, stop_method="fixed", management_method="fixed", paper_slippage_ticks=1.)

@@ -21,6 +21,8 @@ class BoxIntegrationTests(unittest.TestCase):
     def setUp(self):
         folder=tempfile.TemporaryDirectory();self.addCleanup(folder.cleanup)
         patcher=patch.object(live_store,"DB_PATH",Path(folder.name)/"box.db");patcher.start();self.addCleanup(patcher.stop)
+        calendar=patch("goxtrade.market.calendar_guard.restriction",return_value=dict(allow_entry=True,flatten=False))
+        calendar.start();self.addCleanup(calendar.stop)
 
     def test_registry_and_legacy_definitions_preserved(self):
         self.assertEqual(LEGACY_STRATEGIES,("CRT","Reversal","ORB","VWAP Reclaim","EMA Pullback"))

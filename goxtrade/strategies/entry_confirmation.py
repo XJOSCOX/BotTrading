@@ -157,6 +157,7 @@ def evaluate_indicator_entry(signal, minutes, price, now):
 
 def check(signal, now=None):
     now = now or datetime.now(timezone.utc)
+    source_symbol = (signal.get("reference_symbol") or signal["symbol"]) if signal.get("entry_policy")=="indicator-event-v1" else signal["symbol"]
     if signal.get("entry_policy") in ("indicator-event-v1","previous-box-v1"):
         from goxtrade.market.calendar_guard import entry_block
         blocked = entry_block(now)
@@ -168,17 +169,17 @@ def check(signal, now=None):
         if row and row["state"] == "Cancelled":
             return dict(row)
         tick = conn.execute("SELECT price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND price IS NOT NULL ORDER BY id DESC LIMIT 1",
-                            (signal["symbol"],contract_for_symbol(signal["symbol"]))).fetchone()
-        price = valid_price(signal["symbol"],tick["price"]) if tick else None
+                            (source_symbol,contract_for_symbol(source_symbol))).fetchone()
+        price = valid_price(source_symbol,tick["price"]) if tick else None
         fresh = tick and all(pd.notna(stamp:=pd.to_datetime(tick[k],utc=True,errors="coerce")) and 0<=(pd.Timestamp(now)-stamp).total_seconds()<=10 for k in ("event_time","received_at"))
         source = None
         if fresh and signal.get("entry_policy") in ("indicator-event-v1","previous-box-v1"):
             from goxtrade.data.strategy_history import load_strategy_minutes, latest_trade
-            contract = contract_for_symbol(signal["symbol"])
-            source = load_strategy_minutes(signal["symbol"], contract, now, hours=24*16 if signal.get("strategy_id")=="previous_day_box" else 72)
-            last = latest_trade(signal["symbol"], contract)
+            contract = contract_for_symbol(source_symbol)
+            source = load_strategy_minutes(source_symbol, contract, now, hours=24*16 if signal.get("strategy_id")=="previous_day_box" else 72)
+            last = latest_trade(source_symbol, contract)
             bounds = conn.execute("SELECT MIN(price),MAX(price) FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND id>? AND price>0",
-                                  (signal["symbol"], contract, signal.get("detection_sequence") or 0)).fetchone()
+                                  (source_symbol, contract, signal.get("detection_sequence") or 0)).fetchone()
             signal = {**signal, "_validation_sequence": last["id"] if last else None,
                       "_post_detection_low": bounds[0] if bounds[0] is not None else price,
                       "_post_detection_high": bounds[1] if bounds[1] is not None else price}

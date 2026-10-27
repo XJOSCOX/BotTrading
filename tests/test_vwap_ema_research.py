@@ -1,6 +1,7 @@
 """Synthetic prices verify arithmetic and causality, not trading profitability."""
 from dataclasses import replace
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -15,6 +16,8 @@ from tests.vwap_fixtures import minutes
 
 class ForwardPaperTests(unittest.TestCase):
     def setUp(self):
+        calendar=patch("goxtrade.market.calendar_guard.restriction",return_value=dict(allow_entry=True,flatten=False))
+        calendar.start();self.addCleanup(calendar.stop)
         self.config = VwapEmaConfig(paper_enabled=True, paper_zero_cost_sensitivity=True, stop_method="fixed", management_method="fixed", paper_slippage_ticks=0.)
         self.minutes = minutes()
         self.now = self.minutes.iloc[-1]["time"]+pd.Timedelta(minutes=1)
