@@ -12,6 +12,13 @@ from tests.manager_fixtures import candidate,facts,policy,NOW
 
 
 class ProductionAutomationTests(unittest.TestCase):
+    def test_explicit_empty_strategies_never_reenable_saved_selection(self):
+        from goxtrade.execution import practice_automation as automation,practice_executor as executor
+        with patch.object(automation.identity,'PROFILE','practice'),patch.object(executor,'PROFILE','practice'),patch.object(automation.identity,'assert_current'),patch('goxtrade.bot.bot_controls.read',return_value=dict(strategies=['CRT'])),patch.object(executor,'arm') as arm:
+            with self.assertRaisesRegex(ValueError,'Select unique registered'):
+                automation.start([],executor.ACCOUNT_NAME,True,confirmed_quantities=dict(MNQ=1,MES=1,MYM=1))
+            arm.assert_not_called()
+
     def test_legacy_session_keeps_frozen_one_contract_cap(self):
         old=dict(id="already-authorized",policy=policy(max_contracts=1).to_dict())
         settings=dict(strategy_testing=old,quantities=dict(MNQ=3))

@@ -1,5 +1,13 @@
 # GoXTrade
 
+## Current Release
+
+The consolidated release is maintained on `main`. See
+[Practice Release Audit](docs/PRACTICE_RELEASE_AUDIT.md) for the seven-strategy
+Practice configuration, verified fixes, validation evidence and operating limits.
+Earlier phase/branch references below are historical delivery records, not
+instructions to run another branch or authorize trading.
+
 ## Practice Operations
 
 See [PRACTICE_OPERATIONS.md](docs/PRACTICE_OPERATIONS.md) for Practice-only rollout,
@@ -190,8 +198,8 @@ The default and `--request-order` remain read-only. Phase 10 adds explicitly gat
 `--mode` actions for operator-reviewed provider evidence, calendar review, one-MNQ
 proposals, separate interactive entry/full-close approvals and reconciliation.
 Nothing submits automatically. A simulated account or PRAC name alone does not
-establish Practice category. The legacy `scripts.practice_smoke_test` alias shares
-this command and its gates; its default no longer performs a market round trip.
+establish Practice category. The obsolete `scripts.practice_smoke_test` alias has
+been removed; use the canonical diagnostics command instead.
 Read [Controlled Practice Round Trip](docs/PRACTICE_ORDER_ROUNDTRIP.md) before
 using any explicit order mode. Leader is excluded, and no account or strategy is
 armed by this workflow.

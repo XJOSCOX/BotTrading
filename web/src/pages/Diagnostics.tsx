@@ -251,7 +251,8 @@ function DiagnosticsPage(_: PageProps) {
             "Quote",
             "History",
             "Current signal",
-            "Last manager rejection / research-shadow",
+            "Latest manager rejection",
+            "Practice execution rejection",
           ]}
           rows={(data.operational?.strategies || []).map((r: Json) => [
             r.name,
@@ -260,6 +261,7 @@ function DiagnosticsPage(_: PageProps) {
             r.history_readiness,
             r.latest_signal,
             r.last_rejection || "No recorded rejection / unknown",
+            r.last_practice_rejection || "No recorded Practice rejection",
           ])}
         />
         <h3>Research readiness</h3>

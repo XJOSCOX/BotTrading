@@ -136,6 +136,22 @@ class NativeApiTests(unittest.TestCase):
             configure.assert_called_once_with(dict(MNQ=3,MES=2,MYM=1),False)
             arm.assert_not_called()
 
+    def test_single_instrument_selection_survives_explicit_and_legacy_saves(self):
+        from goxtrade.bot import bot_controls
+        original_leader=bot_controls.read('leader')
+        body=dict(strategies=['CRT'],quantities=dict(MNQ=1,MES=3,MYM=3),cooldown=5,enable_mym=False,symbols=['MNQ'])
+        with patch.object(practice_executor,'arm') as arm,patch.object(projectx_client,'post',side_effect=AssertionError('No broker calls')):
+            self.assertEqual(self.post('/api/policy/practice',body).status_code,200)
+            self.assertEqual(bot_controls.read('practice')['symbols'],['MNQ'])
+            del body['symbols']
+            self.assertEqual(self.post('/api/policy/practice',body).status_code,200)
+            self.assertEqual(bot_controls.read('practice')['symbols'],['MNQ'])
+            self.assertEqual(bot_controls.read('leader'),original_leader)
+            arm.assert_not_called()
+        for symbols in (['MNQ','MNQ'],['MYM']):
+            self.assertEqual(self.post('/api/policy/practice',{**body,'symbols':symbols}).status_code,400)
+            self.assertEqual(bot_controls.read('practice')['symbols'],['MNQ'])
+
     def test_policy_round_trip_uses_saved_settings_not_cached_runtime(self):
         from goxtrade.bot import bot_controls
         with patch.object(practice_executor, "arm") as arm, patch.object(projectx_client, "post", side_effect=AssertionError("No broker calls")):
@@ -238,8 +254,8 @@ class NativeApiTests(unittest.TestCase):
         target=api_module.identity.TARGETS["practice"]
         body=dict(name=target["name"],safeguards=True)
         with patch.object(practice_executor,"arm") as arm:
-            for action in ("arm","strategy-test"):
-                self.assertEqual(self.post('/api/execution/practice/'+action,body).status_code,400)
+            self.assertEqual(self.post('/api/execution/practice/arm',body).status_code,400)
+            self.assertEqual(self.post('/api/execution/practice/strategy-test',body).status_code,422)
             arm.assert_not_called()
 
     def test_stale_worker_build_cannot_authorize_entries(self):

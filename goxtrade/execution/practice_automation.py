@@ -32,7 +32,7 @@ def start(strategies, confirmed_account, confirmed, *, confirmed_quantities, ack
     if confirmed is not True or confirmed_account != executor.ACCOUNT_NAME:
         raise ValueError("Confirm the exact isolated Practice account and Auto OCO")
     controls = bot_controls.read("practice")
-    specs = [strategy_spec(value) for value in (strategies or controls["strategies"])]
+    specs = [strategy_spec(value) for value in (controls["strategies"] if strategies is None else strategies)]
     if not specs or len({s.id for s in specs}) != len(specs) or any("practice" not in s.execution_profiles for s in specs):
         raise ValueError("Select unique registered Practice strategies")
     settings, _, _ = executor.snapshot()

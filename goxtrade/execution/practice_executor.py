@@ -536,6 +536,8 @@ def cycle(token):
             save_job(job)
     settings, _, jobs = snapshot()
     schedule = execution_schedule()
+    from goxtrade.bot.watch_alerts import reconcile_closed_trades
+    reconcile_closed_trades(PROFILE,ACCOUNT_ID)
     if not schedule["allow_entry"]:
         pending = bool(positions or orders or any(j["state"] not in ("Closed","Rejected") for j in jobs))
         message = schedule["reason"]

@@ -104,6 +104,18 @@ class OperationalEvidenceTests(unittest.TestCase):
             self.assertNotIn(private, serialized)
         self.assertEqual(hashlib.sha256(self.path.read_bytes()).hexdigest(), before)
 
+    def test_practice_rejection_is_scoped_to_actual_account_and_execution(self):
+        self.populate()
+        with closing(sqlite3.connect(self.path)) as conn:
+            conn.execute('ALTER TABLE manager_decisions ADD COLUMN scope TEXT')
+            conn.execute('ALTER TABLE manager_decisions ADD COLUMN account TEXT')
+            for scope,account,reason in (('practice_automation','99991','Actual Practice cooldown'),('practice_automation','99992','Other account'),('shadow','99991','Research shadow only')):
+                conn.execute('INSERT INTO manager_decisions VALUES(?,?,?)',(json.dumps(dict(strategy_id='crt',selected=False,eligibility='RISK_BLOCKED',reasons=[reason])),scope,account))
+            conn.commit()
+        row=next(r for r in evidence.overview()['strategies'] if r['id']=='crt')
+        self.assertEqual(row['last_practice_rejection'],'Actual Practice cooldown')
+        self.assertEqual(row['last_rejection'],'Research shadow only')
+
     def test_unavailable_database_is_unknown_not_zero(self):
         self.populate()
         with closing(sqlite3.connect(self.path)) as writer:

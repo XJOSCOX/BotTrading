@@ -36,6 +36,7 @@ class Policy(Body):
     quantities: dict[str, Count]
     cooldown: Annotated[StrictInt, Field(ge=1, le=60)]
     enable_mym: StrictBool
+    symbols: list[Literal['MNQ','MES','MYM']] | None = None
 
 
 class Intervals(Body):
@@ -250,10 +251,15 @@ def create_app():
         from goxtrade.strategies.strategy_catalog import strategy_spec
         if set(body.quantities) != {"MNQ", "MES", "MYM"} or any(profile not in strategy_spec(name).execution_profiles for name in body.strategies):
             raise ValueError("Unsupported sizing or strategy for this profile")
+        symbols = body.symbols
+        if symbols is None:
+            symbols=[s for s in bot_controls.read(profile)['symbols'] if s in ('MNQ','MES')]+(['MYM'] if body.enable_mym else [])
+        if len(set(symbols))!=len(symbols) or ('MYM' in symbols)!=body.enable_mym:
+            raise ValueError('Choose unique instruments and matching MYM activation')
         if profile == "leader":
-            leader_execution.command("configure", quantities=body.quantities, strategies=body.strategies, cooldown=body.cooldown, enable_mym=body.enable_mym)
+            leader_execution.command("configure", quantities=body.quantities, strategies=body.strategies, cooldown=body.cooldown, enable_mym=body.enable_mym,symbols=symbols)
         else:
-            bot_controls.save(["MNQ", "MES"]+(["MYM"] if body.enable_mym else []), body.strategies, body.cooldown, profile="practice")
+            bot_controls.save(symbols, body.strategies, body.cooldown, profile="practice")
             practice_executor.configure(body.quantities, body.enable_mym)
         state.CACHE.invalidate()
         return dict(message="Policy saved. Run/Pause state unchanged.")
@@ -346,7 +352,7 @@ def create_app():
         return dict(message="Replacement saved. Restart the interface and workers before explicit authorization.")
 
     @app.post("/api/execution/{profile}/{action}", dependencies=[Depends(mutation)])
-    async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor", "start", "strategy-test"], body: Authorization):
+    async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor", "start"], body: Authorization):
         async with app.state.action_lock:
             return await asyncio.to_thread(execute, profile, action, body)
 
@@ -639,8 +645,6 @@ def create_app():
 def execute(profile, action, body):
     from goxtrade.execution import practice_executor, leader_execution
     target = identity.TARGETS[profile]
-    if action=="strategy-test":
-        raise ValueError("Obsolete diagnostic start. Use Practice automation with explicitly confirmed saved quantities")
     if action=="start" and profile!="practice":
         raise ValueError("Practice automation cannot authorize Leader")
     if action=="arm" and profile=="practice":

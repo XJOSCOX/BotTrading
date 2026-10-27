@@ -22,6 +22,28 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
   );
   const names: string[] = config.strategies.map((spec: Json) => spec.name);
   const selected: string[] = config.policies[profile]?.strategies || [];
+  const authorization = (name: string) => {
+    if (!selected.includes(name)) return "Watch only";
+    const spec = config.strategies.find((s: Json) => s.name === name);
+    const parameters =
+      spec?.id === "vwap_ema_cross"
+        ? config.vwap
+        : spec?.id === "previous_day_box"
+          ? config.previous_day_box
+          : null;
+    if (
+      parameters &&
+      (!parameters.monitor_enabled || !parameters[`${profile}_enabled`])
+    )
+      return "Selected / opt-in disabled";
+    if (!p.settings?.enabled) return "Selected / entries paused";
+    if (!p.runtime?.updated_at || age(p.runtime.updated_at) > 45)
+      return "Selected / worker stale";
+    const session = p.settings.automation || p.settings.strategy_testing;
+    if (profile === "practice" && !session?.strategies?.includes(spec?.id))
+      return "Selected / session restart needed";
+    return "Selected / entries armed";
+  };
   return (
     <>
       <Tabs
@@ -68,7 +90,16 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
                   <tr>
                     <th>Strategy</th>
                     {symbols.map((s) => (
-                      <th key={s}>{s.replace("=F", "")}</th>
+                      <th key={s}>
+                        {s.replace("=F", "")}
+                        <small>
+                          {config.policies[profile]?.symbols?.includes(
+                            { "NQ=F": "MNQ", "ES=F": "MES", "YM=F": "MYM" }[s],
+                          )
+                            ? "Entry instrument selected"
+                            : "Watch only"}
+                        </small>
+                      </th>
                     ))}
                   </tr>
                 </thead>
@@ -77,11 +108,7 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
                     <tr key={name}>
                       <th>
                         {name}
-                        <small>
-                          {selected.includes(name)
-                            ? "Selected for entry"
-                            : "Watch only"}
-                        </small>
+                        <small>{authorization(name)}</small>
                       </th>
                       {symbols.map((s) => {
                         const row = live.monitor.find(
@@ -109,9 +136,13 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
                                 ? live.session?.is_open
                                   ? "Awaiting worker evaluation"
                                   : "Market closed"
-                                : row?.focus_value ||
-                                  sig?.reason ||
-                                  "No current evaluation"}
+                                : sig?.signal === "WAIT"
+                                  ? row?.indicator_snapshot?.reason ||
+                                    sig?.reason ||
+                                    "Waiting for a setup"
+                                  : row?.focus_value ||
+                                    sig?.reason ||
+                                    "No current evaluation"}
                             </small>
                           </td>
                         );

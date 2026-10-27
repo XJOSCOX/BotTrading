@@ -180,9 +180,8 @@ class PreflightTests(unittest.TestCase):
         self.assertIn("reviewed_exchange_calendar",report["blockers"])
         self.assertIn("exchange_standard_session",report["blockers"])
 
-    def test_cli_and_retired_smoke_are_harmless_and_block_order_flag(self):
-        from scripts import practice_execution_validation as script, practice_smoke_test as old
-        self.assertIs(old.main,script.main)
+    def test_read_only_cli_blocks_order_flag(self):
+        from scripts import practice_execution_validation as script
         with tempfile.TemporaryDirectory() as folder, redirect_stdout(io.StringIO()), \
                 patch.object(script,"collect",side_effect=self.collect):
             result=script.main(["--request-order","--output",str(Path(folder)/"evidence.json")])
@@ -192,8 +191,8 @@ class PreflightTests(unittest.TestCase):
         self.assertTrue(all(c.args[0] in v.READ_ENDPOINTS for c in self.post.call_args_list))
 
     def test_imports_do_not_authenticate(self):
-        from scripts import practice_execution_validation, practice_smoke_test
-        importlib.reload(practice_execution_validation); importlib.reload(practice_smoke_test)
+        from scripts import practice_execution_validation
+        importlib.reload(practice_execution_validation)
         self.login.assert_not_called(); self.post.assert_not_called()
 
     def test_auth_failure_clears_previously_cached_probe_token(self):

@@ -42,6 +42,8 @@ def inspect_files():
     rows, references = [], {}
     for name in sorted(set(names)):
         path = ROOT/name
+        if not path.is_file():
+            continue
         if path.suffix.lower() not in (".py", ".tsx", ".ts", ".js", ".html", ".css", ".json", ".cmd", ".ps1", ".toml", ".md", ".txt") and path.name not in (".gitignore", ".gitattributes", ".env.example"):
             continue
         if name in ("docs/FULL_SYSTEM_AUDIT.md",) or path.name in ("package-lock.json",):
@@ -89,8 +91,6 @@ def inventory():
         evidence = ("Phase 7 targeted semantic review + static parsing" if name in PHASE7_REVIEW else
                     "Prior-milestone critical review; Phase 7 static re-inventory" if name in PRIOR_REVIEW else
                     "Static inventory; no additional defect asserted")
-        if name.endswith("practice_smoke_test.py"):
-            evidence = "DANGEROUS IF RUN: explicit Practice orders; not invoked"
         if name.startswith("tests/"):
             evidence = f"{row['tests']} test methods declared; browser scripts may have zero methods"
         integration = ", ".join(dict.fromkeys(value for value in row["imports"] if value.count(".") > 1))[:100]

@@ -47,6 +47,7 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
             continue
         contract, price = contracts[symbol], prices[symbol]
         reference = {"MNQ": "NQ=F", "MES": "ES=F", "MYM": "YM=F"}.get(symbol, symbol+"=F")
+        source_symbol = symbol+'=F'
         for strategy in policy.participating:
             spec = strategy_spec(strategy)
             values = configurations.get(spec.id, {})
@@ -54,18 +55,18 @@ def candidates_at(histories, prices, contracts, now, policy, *, account, profile
                 if known.attrs.get("contract_id") != contract or known["time"].duplicated().any() or ("complete" in known and not known["complete"].eq(True).all()):
                     raise ValueError("Unverified contract provenance or incomplete required history")
                 if spec.id == "vwap_ema_cross":
-                    config = replace(VwapEmaConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(reference,))
+                    config = replace(VwapEmaConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(source_symbol,))
                     context=(recorded_contexts or {}).get(symbol)
                     if config.entry_mode != "CONFIRMED" and context is None:
                         raise UnsupportedDataset("Portfolio minute replay supports CONFIRMED indicator mode only; intrabar signals require recorded trades")
                     snapshot=context["snapshot"] if context is not None and config.entry_mode!="CONFIRMED" else known
-                    raw, _, observation = evaluate_vwap_ema_cross(snapshot, price, now, config, historical=True, symbol=reference,
+                    raw, _, observation = evaluate_vwap_ema_cross(snapshot, price, now, config, historical=True, symbol=source_symbol,
                         **(dict(previous=context.get("observation"),sequence=context["sequence"]) if context is not None else {}))
                     if context is not None:context["observation"]=observation
                     config_values = config.to_dict()
                 elif spec.id == "previous_day_box":
-                    config = replace(PreviousDayBoxConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(reference,))
-                    raw, _ = evaluate_previous_day_box(known, price, now, config, symbol=reference, contract_id=contract, historical=True)
+                    config = replace(PreviousDayBoxConfig.from_dict(values), monitor_enabled=True, enabled_symbols=(source_symbol,))
+                    raw, _ = evaluate_previous_day_box(known, price, now, config, symbol=source_symbol, contract_id=contract, historical=True)
                     config_values = config.to_dict()
                 else:
                     config_values = values

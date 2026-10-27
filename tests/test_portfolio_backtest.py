@@ -26,6 +26,17 @@ def signals(known, prices, contracts, now, settings, *, account, profile):
 
 
 class PortfolioBacktestTests(unittest.TestCase):
+    def test_actual_micro_box_adapter_retains_contract_instrument_identity(self):
+        from tests.previous_day_box_fixtures import history,NOW as box_now
+        source=history(contract=CONTRACT)
+        settings=policy(symbols=('MNQ',),participating=('previous_day_box',))
+        rows,waits=candidates_at({'MNQ':source},{'MNQ':118.},{'MNQ':CONTRACT},box_now,settings,account='fixture',profile='research')
+        self.assertEqual(waits,[])
+        self.assertEqual(len(rows),1)
+        self.assertEqual((rows[0].symbol,rows[0].contract_id),('MNQ',CONTRACT))
+        import json
+        self.assertEqual(json.loads(rows[0].config_json)['enabled_symbols'],['MNQ=F'])
+
     def test_chronological_competition_shared_risk_not_summed(self):
         nq, es = minutes(), minutes()
         es.attrs["contract_id"] = "CON.F.US.MES.Z26"
@@ -43,6 +54,9 @@ class PortfolioBacktestTests(unittest.TestCase):
         self.assertTrue(trade["ambiguous"])
         self.assertEqual(trade["exit"], 89.75)
         self.assertEqual(trade["net"], -22.)
+        self.assertEqual(trade['holding_seconds'],60.)
+        self.assertEqual(result['summary']['metrics']['average_holding_seconds'],60.)
+        self.assertEqual(result['summary']['metrics']['estimated_slippage'],1.)
         self.assertGreaterEqual(result["summary"]["metrics"]["max_drawdown"], 22.)
 
     def test_future_mutation_does_not_change_past_decisions(self):

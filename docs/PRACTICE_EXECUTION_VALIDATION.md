@@ -125,8 +125,9 @@ match the requested Practice account. Rejections/timeouts are sanitized without
 automatic retries. Failed authentication invalidates the probe's prior token.
 No credentials, raw response or unnecessary account identifiers enter the report.
 
-The old `scripts.practice_smoke_test` command now delegates to this read-only
-entry point. Its former unconfirmed MES entry and automatic close were removed.
+The old `scripts.practice_smoke_test` alias has been removed. Use this canonical
+diagnostics entry point. The former unconfirmed MES entry and automatic close
+are not available through the retired alias.
 
 ## Mocked Pipeline And Failure Results
 

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Save } from "lucide-react";
-import { money,type Json } from "../api";
+import { money, type Json } from "../api";
 import { Badge, Field, Metric, Notice, Table, Toggle } from "../components";
 import { type PageProps } from "../pageTypes";
 import { Tabs } from "./Tabs";
@@ -54,10 +54,16 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
       quantities: draft.quantities,
       cooldown: Number(draft.cooldown_minutes),
       enable_mym: draft.enable_mym,
+      symbols: [
+        ...(draft.symbols || []).filter((s: string) => s !== "MYM"),
+        ...(draft.enable_mym ? ["MYM"] : []),
+      ],
     });
     if (result) {
       setDirty((previous) => ({ ...previous, policy: false }));
-      setFeedback("Entry policy saved. Pause and Start to authorize changes to a running automation session. Open positions are unchanged.");
+      setFeedback(
+        "Entry policy saved. Pause and Start to authorize changes to a running automation session. Open positions are unchanged.",
+      );
     }
   };
   return (
@@ -145,6 +151,24 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
                 </label>
               ))}
             </div>
+            {["MNQ", "MES"].map((symbol) => (
+              <Toggle
+                key={symbol}
+                label={`Allow ${symbol} entries`}
+                value={draft.symbols?.includes(symbol) || false}
+                onChange={(enabled) =>
+                  setDraft({
+                    ...draft,
+                    symbols: enabled
+                      ? [...(draft.symbols || []), symbol]
+                      : (draft.symbols || []).filter(
+                          (s: string) => s !== symbol,
+                        ),
+                  })
+                }
+                disabled={busy}
+              />
+            ))}
             <Toggle
               label="Allow MYM entries"
               value={!!draft.enable_mym}
@@ -197,8 +221,22 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
           </form>
           <aside className="policy-aside">
             <h2>Execution safeguards</h2>
-            <Metric label="Account loss lock" value={config.safeguards?.[profile]?.active?money(config.safeguards[profile].active.loss_lock):"Not verified"} />
-            <Metric label="Maximum per symbol" value={config.safeguards?.[profile]?.active?`${config.safeguards[profile].active.max_contracts} micro contracts`:"Not verified"} />
+            <Metric
+              label="Account loss lock"
+              value={
+                config.safeguards?.[profile]?.active
+                  ? money(config.safeguards[profile].active.loss_lock)
+                  : "Not verified"
+              }
+            />
+            <Metric
+              label="Maximum per symbol"
+              value={
+                config.safeguards?.[profile]?.active
+                  ? `${config.safeguards[profile].active.max_contracts} micro contracts`
+                  : "Not verified"
+              }
+            />
             <a href="#safeguards">Manage safeguards</a>
             <div className="detail-row">
               <span>Additional symbols</span>
@@ -206,7 +244,12 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
             </div>
             <div className="detail-row">
               <span>Overnight minimum delay</span>
-              <b>{config.safeguards?.[profile]?.active?.overnight_cooldown_minutes!=null?`${config.safeguards[profile].active.overnight_cooldown_minutes} minutes`:"Not verified"}</b>
+              <b>
+                {config.safeguards?.[profile]?.active
+                  ?.overnight_cooldown_minutes != null
+                  ? `${config.safeguards[profile].active.overnight_cooldown_minutes} minutes`
+                  : "Not verified"}
+              </b>
             </div>
             <p className="muted">
               Strategy-based stops. Open positions keep their original

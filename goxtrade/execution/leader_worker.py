@@ -17,8 +17,13 @@ def handle_command(request):
         enable_mym = request.get("enable_mym", False)
         if type(enable_mym) is not bool:
             raise ValueError("MYM activation must be true or false")
+        symbols=request.get('symbols')
+        if symbols is None:
+            symbols=[s for s in bot_controls.read()['symbols'] if s in ('MNQ','MES')]+(['MYM'] if enable_mym else [])
+        if not set(symbols)<={'MNQ','MES','MYM'} or len(set(symbols))!=len(symbols) or ('MYM' in symbols)!=enable_mym:
+            raise ValueError('Choose unique instruments and matching MYM activation')
         executor.configure(request["quantities"],enable_mym)
-        bot_controls.save(["MNQ","MES"] + (["MYM"] if enable_mym else []),request.get("strategies",["CRT","Reversal"]),request.get("cooldown",5))
+        bot_controls.save(symbols,request.get("strategies",["CRT","Reversal"]),request.get("cooldown",5))
     elif action == "arm":
         if request.get("copier_confirmed") is not True:
             raise ValueError("Confirm Topstep copier and protective-order settings")

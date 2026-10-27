@@ -61,6 +61,8 @@ def close_position(state, position, price, now, reason, ambiguous=False):
                  contract_id=candidate.contract_id, direction=candidate.direction, quantity=exposure.quantity,
                  entry=exposure.entry, exit=fill, initial_stop=candidate.stop, target=candidate.target,
                  entry_time=position["filled_at"], exit_time=stamp(now).isoformat(), session=candidate.session,
+                 holding_seconds=(stamp(now)-stamp(position['filled_at'])).total_seconds(),
+                 slippage_cost=2*policy.slippage_ticks*product.tick_value*exposure.quantity,
                  candidate_id=candidate.candidate_id, setup_id=candidate.setup_id, gross=gross, costs=costs, net=net,
                  reason=reason, ambiguous=ambiguous, planned_risk=position["planned_risk"], owner=candidate.strategy_id)
     state["trades"].append(trade)

@@ -142,6 +142,15 @@ def run():
                     page.get_by_role("checkbox",name=strategy,exact=True).uncheck()
                 save_policy()
 
+            page.get_by_label('Account view').select_option('practice')
+            page.get_by_role('checkbox',name='Allow MES entries',exact=True).uncheck()
+            page.get_by_role('checkbox',name='Allow MYM entries',exact=True).uncheck()
+            save_policy()
+            page.reload()
+            expect(page.get_by_role('checkbox',name='Allow MNQ entries',exact=True)).to_be_checked()
+            expect(page.get_by_role('checkbox',name='Allow MES entries',exact=True)).not_to_be_checked()
+            assert bot_controls.read('practice')['symbols']==['MNQ']
+
             # Failed saves keep the draft, show a real error, and do not alter storage.
             reject_save=True
             page.get_by_role("checkbox",name="CRT",exact=True).check()
@@ -192,7 +201,7 @@ def run():
             expect(page.get_by_label("sell percent",exact=True)).to_have_value("80")
             expect(page.get_by_label("session",exact=True)).to_have_value("rth")
             assert not errors, errors
-            assert len(saved_requests)==12, saved_requests
+            assert len(saved_requests)==13, saved_requests
             browser.close()
     print("Control Center real-API/temp-DB browser checks passed: both profiles, strategy on/off/all-off, MYM, sizes, cooldown, stale snapshots, reconnect drafts, save failure, independent tabs, intervals, VWAP and reload persistence. No broker actions or production writes.")
 

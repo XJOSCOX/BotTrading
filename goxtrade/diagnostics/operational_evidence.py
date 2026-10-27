@@ -85,11 +85,18 @@ def _production(conn, tables, now, targets):
     if "bot_monitor_status" in tables:
         monitor = [(row[0], _object(row[1])) for row in conn.execute("SELECT strategy,record FROM bot_monitor_status LIMIT 100")]
     rejections = {}
+    practice_rejections = {}
     if "manager_decisions" in tables:
         for row in conn.execute("SELECT record FROM manager_decisions ORDER BY rowid DESC LIMIT 300"):
             decision = _object(row[0])
             if decision.get("selected") is False:
                 rejections.setdefault(decision.get("strategy_id"), decision)
+        columns={row[1] for row in conn.execute('PRAGMA table_info(manager_decisions)')}
+        if {'scope','account'}<=columns:
+            for row in conn.execute("SELECT record FROM manager_decisions WHERE scope='practice_automation' AND account=? ORDER BY rowid DESC LIMIT 300",(str(targets['practice']['id']),)):
+                decision=_object(row[0])
+                if decision.get('selected') is False:
+                    practice_rejections.setdefault(decision.get('strategy_id'),decision)
     # Display existing reasons, never infer a rejection from price movement.
     private = [os.getenv(key, "") for key in ("TOPSTEP_USERNAME", "TOPSTEP_API_KEY")]
     private += [str(value) for target in targets.values() for key, value in target.items() if key in ("id", "name")]
@@ -108,6 +115,8 @@ def _production(conn, tables, now, targets):
         direction = next((s.get("signal") for s in signals if s.get("signal") in ("LONG", "SHORT")), None)
         reject = rejections.get(spec.id, {})
         reasons = reject.get("reasons", [])
+        actual=practice_rejections.get(spec.id,{})
+        actual_reasons=actual.get('reasons',[])
         strategies.append(dict(id=spec.id, name=spec.name, minutes=spec.signal_minutes,
             monitoring="RECENT SNAPSHOT" if fresh else "STALE / UNAVAILABLE",
             quote_fresh=bool(fresh) and all(r.get("feed_fresh") is True and _fresh(r.get("quote_time"), now) for r in fresh),
@@ -115,6 +124,7 @@ def _production(conn, tables, now, targets):
             latest_signal=direction or ("WAIT" if signals and all(s.get("signal") == "WAIT" for s in signals) else "UNKNOWN"),
             signal_scope="Recent saved monitor observations, not a historical signal ledger",
             last_rejection=safe_reason(reasons[0]) if reasons else None,
+            last_practice_rejection=safe_reason(actual_reasons[0]) if actual_reasons else None,
             rejection_stage=reject.get("eligibility") if reject.get("eligibility") in
                 ("REJECTED", "EXPIRED", "DATA_UNAVAILABLE", "EXECUTION_DISABLED", "RISK_BLOCKED", "CONFLICTED") else None))
     return dict(profiles=profiles, strategies=strategies)
