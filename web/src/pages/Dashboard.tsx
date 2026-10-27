@@ -2,7 +2,6 @@ import { useState } from "react";
 import { ct, money, type Json } from "../api";
 import { Badge, Empty, Metric, Table } from "../components";
 import { type PageProps, tone, fresh } from "../pageTypes";
-import { EquityScene } from "./EquityScene";
 import { Activity, ShieldCheck, ArrowUpRight } from "lucide-react";
 import "./Dashboard.css";
 
@@ -73,7 +72,7 @@ export function Dashboard({ live, profile }: PageProps) {
   const health = p.broker || {},
     synced = fresh(health.updated_at) && !health.error;
   return (
-    <div className="dashboard-3d">
+    <div className="dashboard">
       <div className="filters">
         <div className="segmented">
           {["Today", "7 days", "30 days", "All saved"].map((v) => (
@@ -146,21 +145,9 @@ export function Dashboard({ live, profile }: PageProps) {
         <section>
           <div className="section-heading">
             <h2>Realized equity</h2>
-            <span className="equity-label">
-              USD / CLOSED TRADES <Badge>3D</Badge>
-            </span>
+            <span className="equity-label">USD / CLOSED TRADES</span>
           </div>
-          <EquityScene
-            history={JSON.stringify(
-              rows.map((r) => ({
-                net: r.net,
-                symbol: r.symbol,
-                strategy: r.strategy,
-                closed: r.closed_at,
-              })),
-            )}
-            fallback={<Equity values={curve} />}
-          />
+          <Equity values={curve} />
           <div className="minor-metrics">
             <Metric
               label="Average win"

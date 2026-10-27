@@ -189,7 +189,7 @@ are not available through the retired alias.
 | `python -m compileall -q goxtrade scripts tests` | PASS |
 | `npm.cmd --script-shell=cmd.exe run build` | PASS; existing Three.js chunk-size advisory remains |
 | `tests.test_system_hardening_browser` | 6 viewports x 8 pages; no overflow/page errors; nonblank charts; 4 stream-fault recoveries; no document reload; zero broker writes |
-| `tests.test_dashboard_3d_browser` | 6 viewports; nonblank, interactive, resizable chart; negative/empty data and WebGL fallback; zero mutations/errors |
+| `tests.test_dashboard_browser` | 5 viewports; flat realized-equity chart, filters, negative/empty states; no WebGL assets or account mutations |
 | Saved production safety/config comparison | PASS after approved pause; no further settings/risk/account/copy changes |
 
 Private logs/screenshots/backups remain ignored under `data/verification/`. The

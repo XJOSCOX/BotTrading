@@ -67,3 +67,20 @@ def restriction(now, required=False):
 def entry_block(now):
     state = restriction(now, required=True)
     return None if state["allow_entry"] else state["reason"]
+
+
+def review_status(now):
+    """Read-only coverage evidence; never extends or approves a calendar."""
+    try:
+        values = json.loads(CALENDAR_PATH.read_text(encoding="utf-8"))
+        intervals = validate(values, now)
+        current = stamp(now)
+        remaining = (stamp(values["valid_until"])-current).total_seconds()
+        return dict(valid=True, valid_until=values["valid_until"],
+                    currently_open=any(begin <= current < end for begin, end in intervals),
+                    expires_soon=remaining <= 86400,
+                    reason=f"Reviewed calendar valid through {values['valid_until']}" +
+                           ("; review due within 24 hours" if remaining <= 86400 else ""))
+    except (OSError, ValueError, KeyError, TypeError):
+        return dict(valid=False, currently_open=False, expires_soon=True,
+                    reason="Reviewed calendar missing, invalid or expired; entries remain blocked")

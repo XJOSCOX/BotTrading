@@ -14,6 +14,9 @@ It does not enable copier accounts, broker partial exits or broker stop amendmen
   reconciliation, ownership/protection and cumulative-loss checks must pass.
 - Review strategy/data and calendar evidence too. A healthy execution worker does
   not create a signal or override stale quotes, missing candles or calendar gates.
+- Practice operations also checks reviewed calendar validity and fresh trade
+  timestamps for each selected micro contract while entries and the market are
+  open. Review coverage before expiry; it is never automatically extended.
 - Keep the computer awake and connected. Browser closure does not stop workers;
   computer shutdown stops software exits. Original broker stops are independent.
 
@@ -58,6 +61,9 @@ Regression tests simulate outages, uncertain outcomes and restarts without causi
 real broker failures. Do not deliberately crash exit management with an open trade.
 
 ## Verified Rollout
+
+The latest acceptance record is [Practice Production Acceptance](PRACTICE_PRODUCTION_ACCEPTANCE.md).
+The historical rollout below describes its own earlier configuration and tests.
 
 The 2026-10-26 Practice rollout passed 653 isolated regression tests, the production
 frontend build and responsive browser checks. The existing bot-owned Practice

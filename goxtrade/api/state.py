@@ -15,6 +15,7 @@ from goxtrade.market.trading_schedule import execution_schedule
 from goxtrade.strategies.strategy_catalog import SPECS
 from goxtrade.strategies import strategy_settings
 from goxtrade.bot import bot_controls
+from goxtrade.bot.signal_pnl import watch_outcome
 from goxtrade.execution import safeguards
 
 SYMBOLS = ("NQ=F", "ES=F", "YM=F", "MNQ=F", "MES=F", "MYM=F")
@@ -67,6 +68,7 @@ def profile_state(conn, tables, profile):
     night=overnight()
     effective=dict(overnight=night,max_contracts=min(limits['active']['max_contracts'],limits['active']['overnight_max_contracts']) if night else limits['active']['max_contracts'])
     return dict(settings=settings, runtime=runtime, gate=gate, broker=history,safeguards=limits,effective_limits=effective,
+                execution_alert_ids=[job['alert_id'] for job in jobs if job.get('fill_price') is not None or job.get('state') in ('Intent','Submitted','Unknown','Open','Closing','Closed')],
                 jobs=sorted(jobs, key=lambda row: row.get("sent_at", 0), reverse=True)[:300],
                 fills=sorted(fills, key=lambda row: row.get("creationTimestamp", ""), reverse=True)[:150],
                 trades=trades, totals=summary(matched), target=target)
@@ -84,14 +86,35 @@ def snapshot():
             # All active rows plus a bounded closed journal, not only the last N active IDs.
             for row in conn.execute("SELECT id,record FROM bot_alert_history ORDER BY id DESC"):
                 alert = dict(id=row[0], **json.loads(row[1]))
+                alert["watch_outcome"] = watch_outcome(alert)
                 if alert.get("status") == "Active" or len(alerts) < 350:
                     alerts.append(alert)
         events = []
         if "bot_events" in tables:
             events = [dict(row) for row in conn.execute("SELECT * FROM bot_events ORDER BY id DESC LIMIT 100")]
+        for profile, record in profiles.items():
+            record["entry_decisions"] = alert_entry_decisions(conn, tables, [a["id"] for a in alerts], profile)
     from goxtrade.data.lab_store import progress_revision
     research_revision = progress_revision()
     return clean(dict(profiles=profiles, monitor=monitor, alerts=alerts, events=events,research_revision=research_revision))
+
+
+def alert_entry_decisions(conn, tables, alert_ids, profile):
+    """Keep alert evidence independent of the bounded general event feed."""
+    if "bot_events" not in tables:
+        return {}
+    decisions = {}
+    predicate = "topic LIKE 'leader:%'" if profile == "leader" else "topic NOT LIKE 'leader:%'"
+    ids = list(dict.fromkeys(alert_ids))
+    for offset in range(0, len(ids), 500):
+        batch = ids[offset:offset+500]
+        marks = ",".join("?" for _ in batch)
+        rows = conn.execute(
+            f"SELECT * FROM bot_events WHERE id IN (SELECT MAX(id) FROM bot_events "
+            f"WHERE {predicate} AND kind='Entry blocked' AND alert_id IN ({marks}) GROUP BY alert_id)", batch)
+        for row in rows:
+            decisions[row["alert_id"]] = dict(row)
+    return decisions
 
 
 class SnapshotCache:

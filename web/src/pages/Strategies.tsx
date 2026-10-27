@@ -1,14 +1,31 @@
 import { useState } from "react";
 import { ShieldAlert, Trash2 } from "lucide-react";
-import { age, ct, price, type Json } from "../api";
+import { age, ct, money, price, type Json } from "../api";
 import { Badge, Empty, Table } from "../components";
 import { type PageProps, symbols, tone } from "../pageTypes";
 import { Tabs } from "./Tabs";
 import { PreviousDayBoxPanel } from "./PreviousDayBox";
 
+function watchDollars(rows: Json[]) {
+  let won = 0,
+    lost = 0;
+  for (const row of rows) {
+    const result = row.watch_outcome;
+    if (
+      !["WIN", "LOSS", "BREAKEVEN"].includes(result?.state) ||
+      !Number.isFinite(result?.gross_one_micro)
+    )
+      continue;
+    const cents = Math.round(result.gross_one_micro * 100);
+    if (cents > 0) won += cents;
+    else lost += cents;
+  }
+  return { won: won / 100, lost: lost / 100, net: (won + lost) / 100 };
+}
+
 export function Strategies({ config, live, profile, act, busy }: PageProps) {
   const [tab, setTab] = useState("Active setups"),
-    [past, setPast] = useState(false),
+    [historyLimit, setHistoryLimit] = useState(30),
     [filter, setFilter] = useState("All");
   const p = live.profiles[profile] || {},
     jobs: Json[] = p.jobs || [],
@@ -22,6 +39,47 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
   );
   const names: string[] = config.strategies.map((spec: Json) => spec.name);
   const selected: string[] = config.policies[profile]?.strategies || [];
+  const watched: Json[] = live.alerts.filter(
+    (a: Json) =>
+      !(p.execution_alert_ids || []).includes(a.id) &&
+      !byId.get(a.id)?.fill_price &&
+      !["Intent", "Submitted", "Unknown", "Open", "Closing"].includes(
+        byId.get(a.id)?.state,
+      ),
+  );
+  const watchCounts = (state: string) =>
+    watched.filter((a) => a.watch_outcome?.state === state).length;
+  const watchTotals = watchDollars(watched);
+  const watchHistory = watched
+    .filter(
+      (a) => a.status !== "Active" && (filter === "All" || a.symbol === filter),
+    )
+    .sort((a, b) => b.id - a.id);
+  const strategyResults = [...new Set(watched.map((a) => a.strategy))]
+    .sort()
+    .map((strategy) => {
+      const rows = watched.filter((a) => a.strategy === strategy);
+      const count = (state: string) =>
+        rows.filter((a) => a.watch_outcome?.state === state).length;
+      const wins = count("WIN"),
+        losses = count("LOSS"),
+        even = count("BREAKEVEN");
+      const dollars = watchDollars(rows);
+      return [
+        strategy,
+        wins,
+        losses,
+        even,
+        wins + losses + even
+          ? ((100 * wins) / (wins + losses + even)).toFixed(1) + "%"
+          : "--",
+        <span className="positive">{money(dollars.won)}</span>,
+        <span className="negative">{money(dollars.lost)}</span>,
+        <span className={tone(dollars.net)}>{money(dollars.net)}</span>,
+        count("OPEN"),
+        count("DISMISSED") + count("UNSCORED"),
+      ];
+    });
   const authorization = (name: string) => {
     if (!selected.includes(name)) return "Watch only";
     const spec = config.strategies.find((s: Json) => s.name === name);
@@ -49,6 +107,8 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
       <Tabs
         values={[
           "Active setups",
+          "Real trades",
+          "Watch-only history",
           "Decision log",
           "Notifications",
           "Previous Day Box",
@@ -58,6 +118,123 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
       />
       {tab === "Previous Day Box" ? (
         <PreviousDayBoxPanel />
+      ) : tab === "Real trades" ? (
+        <section aria-label="Real trade history">
+          <h2>Real trade history</h2>
+          <p className="muted">
+            {profile === "leader" ? "Leader" : "Practice"} broker-confirmed
+            closed trades only. Net results include reported costs; watch-only
+            estimates are excluded.
+          </p>
+          <Table
+            heads={[
+              "Closed / CT",
+              "Strategy",
+              "Symbol",
+              "Side",
+              "Contracts",
+              "Broker exit",
+              "Costs",
+              "Actual net P&L",
+            ]}
+            rows={[...(p.trades || [])]
+              .sort((a, b) =>
+                String(b.closed_at).localeCompare(String(a.closed_at)),
+              )
+              .map((trade: Json) => [
+                ct(trade.closed_at),
+                trade.strategy,
+                trade.symbol,
+                trade.direction,
+                trade.quantity,
+                price(trade.exit_price),
+                money(trade.costs),
+                <span className={tone(trade.net)}>{money(trade.net)}</span>,
+              ])}
+          />
+          {!p.trades?.length && (
+            <Empty
+              title="No reconciled closed trades"
+              detail="Only matched broker entries and exits appear here."
+            />
+          )}
+        </section>
+      ) : tab === "Watch-only history" ? (
+        <section aria-label="Watch-only history">
+          <h2>Watch-only results by strategy</h2>
+          <div
+            className="watch-results"
+            aria-label="Hypothetical watch results"
+          >
+            <span className="positive">{watchCounts("WIN")} wins</span>
+            <span className="negative">{watchCounts("LOSS")} losses</span>
+            <span>{watchCounts("BREAKEVEN")} break-even</span>
+            <span className="positive">
+              Hypothetical won {money(watchTotals.won)}
+            </span>
+            <span className="negative">
+              Hypothetical lost {money(watchTotals.lost)}
+            </span>
+            <span className={tone(watchTotals.net)}>
+              Hypothetical net {money(watchTotals.net)}
+            </span>
+            <small>
+              USD gross estimates for one micro contract per signal, before fees
+              and slippage. Loaded watch-only history, not actual account
+              profit. Open, cleared and unscored alerts are excluded from dollar
+              totals; cleared and unscored alerts are excluded from win rate.
+            </small>
+          </div>
+          <Table
+            heads={[
+              "Strategy",
+              "Wins",
+              "Losses",
+              "Break-even",
+              "Win rate",
+              "Hypothetical won ($)",
+              "Hypothetical lost ($)",
+              "Hypothetical net ($)",
+              "Open",
+              "Cleared / unscored",
+            ]}
+            rows={strategyResults}
+          />
+          <h2>Watch-only history</h2>
+          <select
+            aria-label="Watch-only symbol"
+            value={filter}
+            onChange={(e) => {
+              setFilter(e.target.value);
+              setHistoryLimit(30);
+            }}
+          >
+            {["All", ...symbols, "MNQ=F", "MES=F", "MYM=F"].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+          {watchHistory.slice(0, historyLimit).map((alert) => (
+            <Alert
+              key={alert.id}
+              row={alert}
+              job={byId.get(alert.id)}
+              live={live}
+              decision={p.entry_decisions?.[alert.id]}
+              profile={profile}
+            />
+          ))}
+          {!watchHistory.length && (
+            <Empty
+              title="No closed watch-only alerts"
+              detail="Untraded signals appear here after a strategy exit or manual clear."
+            />
+          )}
+          {watchHistory.length > historyLimit && (
+            <button onClick={() => setHistoryLimit(historyLimit + 30)}>
+              Show more watch-only results
+            </button>
+          )}
+        </section>
       ) : tab === "Active setups" ? (
         <div className="strategy-layout">
           <section>
@@ -186,47 +363,10 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
                 row={alert}
                 job={byId.get(alert.id)}
                 live={live}
-                events={live.events}
+                decision={p.entry_decisions?.[alert.id]}
                 profile={profile}
               />
             ))}
-            <button
-              className="disclosure"
-              aria-expanded={past}
-              onClick={() => setPast(!past)}
-            >
-              {past ? "Hide" : "Show"} past alerts
-            </button>
-            {past && (
-              <>
-                <select
-                  aria-label="Past alert symbol"
-                  value={filter}
-                  onChange={(e) => setFilter(e.target.value)}
-                >
-                  {["All", ...symbols].map((s) => (
-                    <option key={s}>{s}</option>
-                  ))}
-                </select>
-                {live.alerts
-                  .filter(
-                    (a: Json) =>
-                      a.status !== "Active" &&
-                      (filter === "All" || a.symbol === filter),
-                  )
-                  .slice(0, 30)
-                  .map((alert: Json) => (
-                    <Alert
-                      key={alert.id}
-                      row={alert}
-                      job={byId.get(alert.id)}
-                      live={live}
-                      events={live.events}
-                      profile={profile}
-                    />
-                  ))}
-              </>
-            )}
           </section>
         </div>
       ) : (
@@ -256,28 +396,38 @@ function Alert({
   row,
   job,
   live,
-  events,
+  decision,
   profile,
 }: {
   row: Json;
   job?: Json;
   live: Json;
-  events: Json[];
+  decision?: Json;
   profile: string;
 }) {
   const entered = !!job && ["Open", "Closing"].includes(job.state),
     pending = !!job && ["Intent", "Submitted", "Unknown"].includes(job.state),
     last = live.prices[row.symbol]?.price;
-  const decisions = events.filter(
-    (e) =>
-      e.alert_id === row.id &&
-      e.kind === "Entry blocked" &&
-      (profile === "leader") === e.topic.startsWith("leader:"),
-  );
+  const watchOnly =
+    !entered && !pending && !job?.fill_price && row.status === "Active";
+  const hypothetical = !entered && !pending && !job?.fill_price;
+  const outcome = row.watch_outcome || {};
+  const completedWatch =
+    hypothetical && ["WIN", "LOSS", "BREAKEVEN"].includes(outcome.state);
+  const blockedReason =
+    job?.state === "Rejected" && job.error_message
+      ? job.error_message
+      : decision?.detail;
   const entry = job?.fill_price ?? row.entry,
+    mark =
+      hypothetical && row.status !== "Active"
+        ? completedWatch
+          ? row.exit_price
+          : null
+        : last,
     move =
-      last != null && entry != null
-        ? (last - entry) * (row.signal === "LONG" ? 1 : -1)
+      mark != null && entry != null
+        ? (mark - entry) * (row.signal === "LONG" ? 1 : -1)
         : null;
   return (
     <article className={"alert-item " + (entered ? "in-trade" : "")}>
@@ -289,14 +439,28 @@ function Alert({
           </Badge>
           <span>{row.strategy}</span>
         </div>
-        <Badge tone={entered ? "warning" : ""}>
+        <Badge
+          tone={
+            entered
+              ? "warning"
+              : completedWatch
+                ? outcome.state === "WIN"
+                  ? "positive"
+                  : outcome.state === "LOSS"
+                    ? "negative"
+                    : ""
+                : ""
+          }
+        >
           {entered
             ? "IN TRADE"
             : pending
               ? job?.state
               : row.status === "Active"
                 ? "WATCH ONLY"
-                : row.status}
+                : completedWatch
+                  ? "WATCH " + outcome.state
+                  : row.status}
         </Badge>
       </header>
       <div className="alert-time">
@@ -305,22 +469,32 @@ function Alert({
       </div>
       <div className="alert-live">
         <span>
-          Last <b>{price(last)}</b>
+          {hypothetical && row.status !== "Active"
+            ? "Hypothetical exit"
+            : "Last"}{" "}
+          <b>{price(mark)}</b>
         </span>
         {move != null && (
           <span className={tone(move)}>
             {move > 0 ? "+" : ""}
             {move.toFixed(2)} pts{" "}
-            {job?.fill_price ? "from broker fill" : "signal movement"}
+            {job?.fill_price
+              ? "from broker fill"
+              : completedWatch
+                ? "hypothetical result"
+                : "hypothetical open movement"}
           </span>
         )}
       </div>
       <div className="alert-levels">
         {[
-          [entered ? "Broker fill" : "Signal entry", entry],
+          [job?.fill_price ? "Broker fill" : "Hypothetical entry", entry],
           ["Protective stop", row.stop],
           ["Target reference", row.target],
-          ["Observed exit", row.exit_price],
+          [
+            hypothetical ? "Hypothetical exit" : "Observed exit",
+            hypothetical && !completedWatch ? null : row.exit_price,
+          ],
         ].map(([label, value]) => (
           <div key={String(label)}>
             <small>{label}</small>
@@ -328,6 +502,34 @@ function Alert({
           </div>
         ))}
       </div>
+      {hypothetical && (
+        <div className="watch-lifecycle">
+          <span>
+            Hypothetical entry: {ct(row.entry_time || row.detected_at)}
+          </span>
+          <span>
+            Exit:{" "}
+            {completedWatch
+              ? ct(row.exit_time)
+              : row.status === "Active"
+                ? "Open / tracking strategy exit"
+                : "No observed strategy exit"}
+          </span>
+          {completedWatch && (
+            <span className={tone(outcome.gross_one_micro)}>
+              1 {outcome.instrument}: {money(outcome.gross_one_micro)} gross
+              estimate, before fees and slippage
+            </span>
+          )}
+          {row.status !== "Active" && (
+            <span>{row.exit_reason || "No exit reason recorded"}</span>
+          )}
+          <small>
+            Signal prices are theoretical, not guaranteed fills or actual
+            account results.
+          </small>
+        </div>
+      )}
       <div className="evidence-grid">
         <div>
           <b>Setup evidence</b>
@@ -343,10 +545,21 @@ function Alert({
           </p>
         </div>
       </div>
-      {!entered && decisions.length > 0 && (
-        <div className="entry-block">
+      {watchOnly && (
+        <div className="entry-block" role="note">
           <ShieldAlert size={14} />
-          {decisions[0].detail}
+          <div>
+            <b>
+              No trade entered ({profile === "leader" ? "Leader" : "Practice"})
+            </b>
+            <p>
+              {blockedReason ||
+                "No execution decision recorded for this alert yet. A watch signal does not confirm an order."}
+            </p>
+            {decision?.time && (
+              <small>Last recorded decision: {ct(decision.time)}</small>
+            )}
+          </div>
         </div>
       )}
     </article>

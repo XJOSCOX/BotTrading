@@ -1271,6 +1271,27 @@ main {
 .entry-block svg {
   flex-shrink: 0;
 }
+.entry-block p {
+  margin: 3px 0;
+  color: inherit;
+  overflow-wrap: anywhere;
+}
+.entry-block small {
+  color: inherit;
+}
+.watch-results, .watch-lifecycle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  padding: 12px 0;
+  font-size: 13px;
+  border-bottom: 1px solid #343a34;
+  overflow-wrap: anywhere;
+}
+.watch-results small, .watch-lifecycle small {
+  flex-basis: 100%;
+  color: #a0a59f;
+}
 .disclosure {
   width: 100%;
   justify-content: flex-start;

@@ -14,7 +14,9 @@ from goxtrade.execution.safeguards import Limits,PROTOCOL_VERSION
 class PracticeReadinessTests(unittest.TestCase):
     def setUp(self):
         self.now=datetime(2026,10,26,20,tzinfo=timezone.utc)
-        self.state=dict(settings=dict(enabled=True,automation=dict(id='authorized')),leader_settings=dict(enabled=False),
+        self.state=dict(settings=dict(enabled=True,automation=dict(id='authorized',policy=dict(symbols=['MNQ']))),leader_settings=dict(enabled=False),
+                        calendar=dict(valid=True,reason='Reviewed fixture'),market_open=True,
+                        market_trades=dict(MNQ=dict(price=100.,event_time=self.now.isoformat(),received_at=self.now.isoformat())),
                         runtime=dict(account_id=41,updated_at=self.now.isoformat(),safeguards_version=PROTOCOL_VERSION,worker_build=readiness.fingerprint()),target=dict(id=41,gate_id=41),
                         limits=asdict(Limits()),gate=dict(account_id=41,locked=False,baseline=10000.,loss=0.,limit=500.),
                         health=dict(error=False,updated_at=self.now.isoformat(),positions=[],orders=[]),jobs=[])
@@ -44,6 +46,27 @@ class PracticeReadinessTests(unittest.TestCase):
     def test_source_upgrade_requires_worker_reload(self):
         self.state['runtime']['worker_build']='old-source-build'
         self.assertIn('current_worker',self.result()['blockers'])
+
+    def test_calendar_expiry_and_stale_micro_trades_are_not_healthy(self):
+        self.state['calendar']['valid']=False
+        self.assertIn('reviewed_calendar',self.result()['blockers'])
+        self.state['calendar']['valid']=True
+        self.state['market_trades']['MNQ']['event_time']=(self.now-timedelta(seconds=31)).isoformat()
+        self.assertIn('selected_market_data',self.result()['blockers'])
+        self.state['market_open']=False
+        self.assertNotIn('selected_market_data',self.result()['blockers'])
+
+    def test_data_requires_all_selected_symbols_valid_prices_and_provider_time(self):
+        self.state['settings']['automation']['policy']['symbols']=['MNQ','MES']
+        self.assertIn('selected_market_data',self.result()['blockers'])
+        self.state['market_trades']['MES']=deepcopy(self.state['market_trades']['MNQ'])
+        self.assertEqual(self.result()['status'],'CHECKS_PASSED')
+        for field,value in (('price',float('nan')),('price',-1),('received_at',None),('event_time',(self.now+timedelta(seconds=1)).isoformat())):
+            with self.subTest(field=field,value=value):
+                saved=deepcopy(self.state['market_trades']['MES'])
+                self.state['market_trades']['MES'][field]=value
+                self.assertIn('selected_market_data',self.result()['blockers'])
+                self.state['market_trades']['MES']=saved
 
     def test_live_heartbeat_does_not_mask_stale_broker_or_loss_lock(self):
         self.state['health']['updated_at']=(self.now-timedelta(seconds=46)).isoformat()

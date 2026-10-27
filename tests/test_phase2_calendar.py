@@ -76,3 +76,15 @@ class CalendarTests(unittest.TestCase):
         now = pd.Timestamp("2026-10-01T15:00:00Z")
         self.assertFalse(execution_schedule(now)["allow_entry"])
         self.assertTrue(execution_schedule(now, calendar=False)["allow_entry"])
+
+    def test_passive_review_reports_expiry_and_never_rewrites_calendar(self):
+        self.install(reviewed())
+        before=self.path.read_bytes()
+        status=calendar.review_status(pd.Timestamp('2026-10-02T15:00:00Z'))
+        self.assertTrue(status['valid'])
+        self.assertTrue(status['expires_soon'])
+        self.assertTrue(status['currently_open'])
+        self.assertEqual(self.path.read_bytes(),before)
+        expired=calendar.review_status(pd.Timestamp('2026-10-02T22:00:00Z'))
+        self.assertFalse(expired['valid'])
+        self.assertFalse(expired['currently_open'])

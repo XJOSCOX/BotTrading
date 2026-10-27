@@ -40,6 +40,19 @@ def assess(state, now):
     owned=owned and len(positions)==len(jobs) and all(any(protective_order(order,j) for j in jobs) for order in orders)
     check('owned_protected_exposure',broker_fresh and owned,'Open positions require matching bot ownership and linked broker stops; pending/unknown outcomes and orphan orders block new entries.')
     check('execution_session',settings.get('enabled') is not True or bool(settings.get('automation') or settings.get('strategy_testing')),'Enabled Practice entries require an authorized saved strategy session.')
+    calendar=state.get('calendar',{})
+    check('reviewed_calendar',calendar.get('valid') is True,calendar.get('reason','Reviewed calendar evidence unavailable.'))
+    session=settings.get('automation') or settings.get('strategy_testing') or {}
+    symbols=(session.get('policy') or {}).get('symbols') or []
+    data_required=settings.get('enabled') is True and state.get('market_open') is True
+    trades=state.get('market_trades',{})
+    data_ok=bool(symbols) and all(symbol in ('MNQ','MES','MYM') and
+        fresh(trades.get(symbol,{}).get('event_time'),now,30) and
+        fresh(trades.get(symbol,{}).get('received_at'),now,30) and
+        type(trades.get(symbol,{}).get('price')) in (int,float) and
+        math.isfinite(trades[symbol]['price']) and trades[symbol]['price']>0 for symbol in symbols)
+    check('selected_market_data',not data_required or data_ok,
+          'Selected micro contracts require valid provider trade timestamps and receipt timestamps within 30 seconds while enabled and the reviewed market is open. Individual strategies can require fresher data.')
     blocked=[r['check'] for r in checks if r['status']!='PASS']
     return dict(observed_at=now.isoformat(),scope='PASSIVE_PRACTICE_OPERATIONS',status='BLOCKED' if blocked else 'CHECKS_PASSED',checks=checks,blockers=blocked,
                 entries_enabled=settings.get('enabled') is True,orders_submitted=0,
@@ -48,6 +61,12 @@ def assess(state, now):
 
 def collect(now=None):
     try:
+        now=now or datetime.now(timezone.utc)
+        from goxtrade.market.calendar_guard import review_status
+        from goxtrade.market.market_session import market_session
+        from goxtrade.execution.contracts import contract_for_symbol
+        from goxtrade.data.price_ticks import price_predicate
+        calendar=review_status(now)
         target=current_targets()['practice']
         with closing(sqlite3.connect(live_store.DB_PATH.as_uri()+'?mode=ro',uri=True,timeout=2)) as conn:
             def control(profile):
@@ -62,7 +81,18 @@ def collect(now=None):
             state=dict(settings=settings,runtime=runtime,leader_settings=leader,target=target,
                        limits=json.loads(row[0]) if row else {},gate=record('practice_loss_gate',target['gate_id']),
                        health=record('bot_health',target['gate_id']),jobs=[json.loads(row[0]) for row in conn.execute('SELECT record FROM practice_jobs')])
-        return assess(state,now or datetime.now(timezone.utc))
+            trades={}
+            session=settings.get('automation') or settings.get('strategy_testing') or {}
+            for symbol in (session.get('policy') or {}).get('symbols',[]):
+                if symbol not in ('MNQ','MES','MYM'):
+                    continue
+                row=conn.execute("SELECT price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? "
+                                 f"AND event_type='trade' AND {price_predicate(symbol+'=F')} ORDER BY id DESC LIMIT 1",
+                                 (symbol+'=F',contract_for_symbol(symbol+'=F'))).fetchone()
+                if row:
+                    trades[symbol]=dict(zip(('price','event_time','received_at'),row))
+            state.update(calendar=calendar,market_open=market_session(now)['is_open'] and calendar['currently_open'],market_trades=trades)
+        return assess(state,now)
     except (OSError,sqlite3.Error,ValueError,TypeError,KeyError):
         return dict(status='BLOCKED',scope='PASSIVE_PRACTICE_OPERATIONS',checks=[],blockers=['local_evidence_unavailable'],orders_submitted=0,
                     limitation='Read-only evidence unavailable or invalid. No settings, broker state or process registrations were changed.')

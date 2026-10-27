@@ -35,6 +35,42 @@ class NativeApiTests(unittest.TestCase):
     def post(self, path, values):
         return self.client.post(path, json=values, headers=self.headers)
 
+    def test_alert_entry_reasons_survive_event_feed_limit_and_stay_profile_scoped(self):
+        from goxtrade.bot import bot_audit
+        with closing(live_store.connect()) as conn:
+            bot_audit.init(conn)
+            def event(topic, alert, detail, kind="Entry blocked"):
+                conn.execute("INSERT INTO bot_events(topic,alert_id,kind,detail) VALUES(?,?,?,?)",
+                             (topic, alert, kind, detail))
+            event("decision:42", 42, "Old Practice reason")
+            event("leader:decision:42", 42, "Leader disabled")
+            event("decision:42", 42, "Cooldown remains active")
+            for index in range(110):
+                event(f"noise:{index}", None, "Unrelated event", "Monitoring")
+            tables = {"bot_events"}
+            practice = state.alert_entry_decisions(conn, tables, [42, 43], "practice")
+            leader = state.alert_entry_decisions(conn, tables, [42], "leader")
+            self.assertEqual(practice[42]["detail"], "Cooldown remains active")
+            self.assertEqual(leader[42]["detail"], "Leader disabled")
+            self.assertNotIn(43, practice)
+            self.assertEqual(state.alert_entry_decisions(conn, set(), [42], "practice"), {})
+            self.assertEqual(state.alert_entry_decisions(conn, tables, [], "practice"), {})
+            self.assertEqual(len(state.alert_entry_decisions(conn, tables, range(600), "practice")), 1)
+
+    def test_old_broker_jobs_remain_excluded_from_watch_history(self):
+        with closing(live_store.connect()) as conn:
+            conn.execute("CREATE TABLE practice_jobs (alert_id INTEGER PRIMARY KEY,record TEXT)")
+            for alert_id in range(1, 303):
+                conn.execute("INSERT INTO practice_jobs VALUES (?,?)", (alert_id, json.dumps(
+                    dict(alert_id=alert_id, state="Closed", fill_price=100, sent_at=alert_id))))
+            conn.execute("INSERT INTO practice_jobs VALUES (303,?)", (json.dumps(dict(alert_id=303, state="Rejected")),))
+            conn.commit()
+            record = state.profile_state(conn, {"practice_jobs"}, "practice")
+            self.assertEqual(len(record["jobs"]), 300)
+            self.assertIn(1, record["execution_alert_ids"])
+            self.assertNotIn(303, record["execution_alert_ids"])
+            self.assertEqual(len(record["execution_alert_ids"]), 302)
+
     def test_no_session_cannot_read_financial_data(self):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/api/snapshot").status_code, 401)

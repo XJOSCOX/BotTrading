@@ -6,6 +6,30 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 POINT_VALUES = {"NQ=F": Decimal("20"), "ES=F": Decimal("50"), "YM=F": Decimal("5")}
 
 
+def watch_outcome(row):
+    """Observed strategy exits only; never imply broker fills or actual profit."""
+    if row.get("status") == "Active":
+        return dict(state="OPEN")
+    if row.get("status") == "Dismissed":
+        return dict(state="DISMISSED")
+    if (row.get("status") != "Closed" or row.get("exit_source") == "broker"
+            or not row.get("exit_time") or row.get("signal") not in ("LONG", "SHORT")):
+        return dict(state="UNSCORED")
+    try:
+        entry, exit_price = Decimal(str(row.get("entry"))), Decimal(str(row.get("exit_price")))
+        if not entry.is_finite() or not exit_price.is_finite() or min(entry, exit_price) <= 0:
+            return dict(state="UNSCORED")
+        points = (exit_price-entry) * (1 if row["signal"] == "LONG" else -1)
+        from goxtrade.market.instruments import instrument
+        micro = {"NQ": "MNQ", "ES": "MES", "YM": "MYM"}.get(str(row.get("symbol")).removesuffix("=F"), str(row.get("symbol")).removesuffix("=F"))
+        gross = points * Decimal(str(instrument(micro).point_value))
+        return dict(state="WIN" if points > 0 else "LOSS" if points < 0 else "BREAKEVEN",
+                    points=float(points), gross_one_micro=float(gross.quantize(Decimal(".01"), rounding=ROUND_HALF_UP)),
+                    instrument=micro)
+    except (InvalidOperation, ValueError, TypeError):
+        return dict(state="UNSCORED")
+
+
 def dollars(row, exit_price):
     multiplier = POINT_VALUES.get(row.get("symbol"))
     if multiplier is None or row.get("entry") is None or exit_price is None or row.get("signal") not in ("LONG", "SHORT"):
