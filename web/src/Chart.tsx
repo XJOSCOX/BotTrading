@@ -42,9 +42,40 @@ export const MarketChart = memo(function MarketChart({
     () => Number(localStorage.getItem("gx-rsi-height")) || 120,
   );
   const [ema, setEma] = useState(true);
+  const [isFollowing, setIsFollowing] = useState(true);
   const syncing = useRef(false),
     updating = useRef(false),
-    following = useRef(true);
+    following = useRef(true),
+    appliedRange = useRef<LogicalRange | null>(null);
+  const requestKey = `${symbol}|${minutes}|${hours}|${endpoint || ""}`;
+  const loadedKey = useRef("");
+  function follow(value: boolean) {
+    following.current = value;
+    setIsFollowing(value);
+    try {
+      localStorage.setItem(`${rangeKey}-following`, String(value));
+    } catch {
+      /* Storage may be disabled. */
+    }
+  }
+  function remember(range: LogicalRange) {
+    try {
+      localStorage.setItem(rangeKey, JSON.stringify(range));
+    } catch {
+      /* Storage may be disabled. */
+    }
+  }
+  function applyRange(range: LogicalRange) {
+    appliedRange.current = range;
+    charts.current.forEach((chart) =>
+      chart.timeScale().setVisibleLogicalRange(range),
+    );
+    remember(range);
+  }
+  function latestRange(count: number, width: number): LogicalRange {
+    const to = Math.max(0, count - 1) + 3;
+    return { from: to - width, to } as LogicalRange;
+  }
   const ctTime = (t: number) =>
     new Intl.DateTimeFormat("en-US", {
       timeZone: "America/Chicago",
@@ -53,6 +84,14 @@ export const MarketChart = memo(function MarketChart({
       hour12: false,
     }).format(new Date(t * 1000));
   useEffect(() => {
+    appliedRange.current = null;
+    try {
+      following.current =
+        localStorage.getItem(`${rangeKey}-following`) !== "false";
+    } catch {
+      following.current = true;
+    }
+    setIsFollowing(following.current);
     let stopped = false,
       timer: ReturnType<typeof setTimeout>,
       controller: AbortController;
@@ -69,6 +108,7 @@ export const MarketChart = memo(function MarketChart({
           controller.signal,
         );
         if (!stopped) {
+          loadedKey.current = requestKey;
           setPoints(data.points);
           setOverlay(endpoint ? data : null);
           setError("");
@@ -165,17 +205,21 @@ export const MarketChart = memo(function MarketChart({
     for (const current of charts.current) {
       current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (!range || syncing.current || updating.current) return;
+        const applied = appliedRange.current;
+        if (
+          applied &&
+          Math.abs(applied.from - range.from) < 0.01 &&
+          Math.abs(applied.to - range.to) < 0.01
+        )
+          return;
         syncing.current = true;
+        appliedRange.current = range;
         charts.current
           .filter((chart) => chart !== current)
           .forEach((chart) => chart.timeScale().setVisibleLogicalRange(range));
         syncing.current = false;
-        following.current = range.to > candle.data().length - 3;
-        try {
-          localStorage.setItem(rangeKey, JSON.stringify(range));
-        } catch {
-          /* Storage may be disabled. */
-        }
+        follow(following.current && range.to > candle.data().length - 3);
+        remember(range);
       });
     }
     return () => {
@@ -186,7 +230,7 @@ export const MarketChart = memo(function MarketChart({
     };
   }, [symbol, minutes, rangeKey]);
   useEffect(() => {
-    if (!series.current.length) return;
+    if (!series.current.length || loadedKey.current !== requestKey) return;
     const [candle, vol, rsi, fast, slow] = series.current;
     const old = charts.current[0].timeScale().getVisibleLogicalRange();
     const first = candle.data().length === 0;
@@ -218,37 +262,44 @@ export const MarketChart = memo(function MarketChart({
     );
     fast.setData(points.map((p) => ({ time: p.time, value: p.ema20 })));
     slow.setData(points.map((p) => ({ time: p.time, value: p.ema50 })));
+    if (!points.length) {
+      updating.current = false;
+      return;
+    }
     let saved: LogicalRange | null = null;
     try {
-      saved = JSON.parse(localStorage.getItem(rangeKey) || "null");
+      const value = JSON.parse(localStorage.getItem(rangeKey) || "null");
+      if (
+        value &&
+        Number.isFinite(value.from) &&
+        Number.isFinite(value.to) &&
+        value.to > value.from
+      )
+        saved = value;
     } catch {
       /* Ignore invalid old viewport data. */
     }
-    if (first && saved) {
-      charts.current.forEach((chart) =>
-        chart.timeScale().setVisibleLogicalRange(saved!),
-      );
-      following.current = false;
+    if (first && saved && !following.current) {
+      const shift = Math.max(0, saved.to - (points.length + 2));
+      applyRange({
+        from: saved.from - shift,
+        to: saved.to - shift,
+      } as LogicalRange);
     } else if (first) {
-      charts.current.forEach((chart) =>
-        chart.timeScale().setVisibleLogicalRange({
-          from: Math.max(0, points.length - 100),
-          to: points.length + 3,
-        } as LogicalRange),
+      applyRange(
+        latestRange(points.length, saved ? saved.to - saved.from : 100),
       );
     } else if (!following.current && old) {
-      charts.current.forEach((chart) =>
-        chart.timeScale().setVisibleLogicalRange(old),
-      );
+      applyRange(old);
     } else
-      charts.current.forEach((chart) => chart.timeScale().scrollToRealTime());
+      applyRange(latestRange(points.length, old ? old.to - old.from : 100));
     updating.current = false;
   }, [points, rangeKey]);
   useEffect(() => {
     const chart = charts.current[0],
       candle = series.current[0];
     if (!chart || !candle) return;
-    const viewport = chart.timeScale().getVisibleLogicalRange();
+    const viewport = appliedRange.current || chart.timeScale().getVisibleLogicalRange();
     updating.current = true;
     levelLines.current.forEach((line) => candle.removePriceLine(line));
     levelLines.current = [];
@@ -384,11 +435,17 @@ export const MarketChart = memo(function MarketChart({
           title="Zoom out"
           onClick={() => {
             const r = charts.current[0]?.timeScale().getVisibleLogicalRange();
-            if (r)
-              charts.current[0].timeScale().setVisibleLogicalRange({
+            if (r) {
+              const next = {
                 from: r.from - 10,
                 to: r.to + 10,
-              } as LogicalRange);
+              } as LogicalRange;
+              applyRange(
+                following.current
+                  ? latestRange(points.length, next.to - next.from)
+                  : next,
+              );
+            }
           }}
         >
           <ZoomOut size={15} />
@@ -398,11 +455,17 @@ export const MarketChart = memo(function MarketChart({
           title="Zoom in"
           onClick={() => {
             const r = charts.current[0]?.timeScale().getVisibleLogicalRange();
-            if (r && r.to - r.from > 25)
-              charts.current[0].timeScale().setVisibleLogicalRange({
+            if (r && r.to - r.from > 25) {
+              const next = {
                 from: r.from + 10,
                 to: r.to - 10,
-              } as LogicalRange);
+              } as LogicalRange;
+              applyRange(
+                following.current
+                  ? latestRange(points.length, next.to - next.from)
+                  : next,
+              );
+            }
           }}
         >
           <ZoomIn size={15} />
@@ -411,8 +474,8 @@ export const MarketChart = memo(function MarketChart({
           className="icon"
           title="Fit all history"
           onClick={() => {
-            following.current = false;
-            charts.current.forEach((chart) => chart.timeScale().fitContent());
+            follow(false);
+            applyRange({ from: 0, to: points.length + 2 } as LogicalRange);
           }}
         >
           <Maximize2 size={15} />
@@ -420,10 +483,17 @@ export const MarketChart = memo(function MarketChart({
         <button
           className="icon"
           title="Follow latest price"
+          aria-pressed={isFollowing}
           onClick={() => {
-            following.current = true;
+            const range = charts.current[0]
+              ?.timeScale()
+              .getVisibleLogicalRange();
+            follow(true);
             charts.current.forEach((chart) =>
-              chart.timeScale().scrollToRealTime(),
+              chart.priceScale("right").applyOptions({ autoScale: true }),
+            );
+            applyRange(
+              latestRange(points.length, range ? range.to - range.from : 100),
             );
           }}
         >
