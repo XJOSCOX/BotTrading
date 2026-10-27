@@ -629,6 +629,9 @@ main {
 .operational-acceptance .table-scroll td:first-child {
   white-space: nowrap;
 }
+.safeguards .table-scroll td:not(:first-child) {
+  white-space: nowrap;
+}
 .trade-management .table-scroll td {
   white-space: nowrap;
   overflow-wrap: normal;

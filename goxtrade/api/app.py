@@ -72,6 +72,9 @@ class SafeguardSave(Body):
     max_contracts: Count
     max_trade_risk: Annotated[StrictFloat,Field(gt=0,le=1000000)]
     max_open_risk: Annotated[StrictFloat,Field(gt=0,le=1000000)]
+    overnight_max_contracts: Count
+    overnight_cooldown_minutes: Annotated[StrictInt,Field(ge=0,le=1440)]
+    overnight_max_spread_ticks: Annotated[StrictInt,Field(ge=1,le=100)]
 
 
 class SafeguardApply(Body):
@@ -655,7 +658,8 @@ def execute(profile, action, body):
             elapsed = float("inf")
         if not 0 <= elapsed < 45 or runtime.get("account_id") != target["id"]:
             raise ValueError("A fresh worker for this exact account must be online before authorization")
-        if runtime.get('safeguards_version')!='account-limits-v1':
+        from goxtrade.execution.safeguards import PROTOCOL_VERSION
+        if runtime.get('safeguards_version')!=PROTOCOL_VERSION:
             raise ValueError('Restart the account worker to load configurable safeguard enforcement before authorization')
         if action == "start" and runtime.get("practice_automation") is not True:
             raise ValueError("Restart the paused Practice worker to load production automation before starting")

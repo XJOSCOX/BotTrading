@@ -7,6 +7,8 @@ import math
 
 from goxtrade.data.live_store import connect
 
+PROTOCOL_VERSION='account-limits-v2'
+
 
 @dataclass(frozen=True)
 class Limits:
@@ -14,11 +16,17 @@ class Limits:
     max_contracts: int = 4
     max_trade_risk: float = 75.
     max_open_risk: float = 150.
+    overnight_max_contracts: int = 1
+    overnight_cooldown_minutes: int = 15
+    overnight_max_spread_ticks: int = 2
 
     @classmethod
     def parse(cls, values):
-        if not isinstance(values,dict) or set(values)!=set(cls.__dataclass_fields__):
+        required={'loss_lock','max_contracts','max_trade_risk','max_open_risk'}
+        if not isinstance(values,dict) or not required<=set(values) or set(values)-set(cls.__dataclass_fields__):
             raise ValueError("Enter all supported safeguard settings")
+        # Older saved rows retain their original bytes/revision and prior night behavior.
+        values=asdict(cls(**values))
         if type(values['max_contracts']) is not int or not 1<=values['max_contracts']<=4:
             raise ValueError("Contract maximum must be within the supported 1-4 range")
         for name in ('loss_lock','max_trade_risk','max_open_risk'):
@@ -27,6 +35,9 @@ class Limits:
                 raise ValueError(f"{name} must be a finite positive dollar value")
         if not values['max_trade_risk']<=values['max_open_risk']<=values['loss_lock']:
             raise ValueError("Trade risk must not exceed open risk, and open risk must not exceed the account loss lock")
+        for field,minimum,maximum in (('overnight_max_contracts',1,4),('overnight_cooldown_minutes',0,1440),('overnight_max_spread_ticks',1,100)):
+            if type(values[field]) is not int or not minimum<=values[field]<=maximum:
+                raise ValueError(f'{field} must be an integer from {minimum} to {maximum}')
         return cls(**values)
 
 
@@ -94,7 +105,7 @@ def apply(profile,confirmed_name,revision):
                 age=(datetime.now(timezone.utc)-datetime.fromisoformat(runtime['updated_at'])).total_seconds()
             except (ValueError,KeyError,TypeError):
                 age=float('inf')
-            if runtime.get('safeguards_version')!='account-limits-v1' or runtime.get('account_id')!=target['id'] or not 0<=age<45:
+            if runtime.get('safeguards_version')!=PROTOCOL_VERSION or runtime.get('account_id')!=target['id'] or not 0<=age<45:
                 raise ValueError('Start or restart the updated account worker before applying safeguards')
         else:
             raise ValueError('Start the account worker before applying safeguards')

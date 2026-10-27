@@ -13,6 +13,7 @@ from goxtrade.api import app as api,state
 from goxtrade.config import execution_identity as identity
 from goxtrade.data import live_store
 from goxtrade.execution import projectx_client,practice_executor
+from goxtrade.execution.safeguards import PROTOCOL_VERSION
 from tests.test_safeguards import TARGETS
 
 
@@ -33,7 +34,7 @@ def run():
         with closing(live_store.connect()) as conn:
             for profile in TARGETS:
                 conn.execute(f'CREATE TABLE {profile}_control(id INTEGER PRIMARY KEY,settings TEXT,status TEXT)')
-                conn.execute(f'INSERT INTO {profile}_control VALUES (1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(account_id=TARGETS[profile]['id'],safeguards_version='account-limits-v1',updated_at=datetime.now(timezone.utc).isoformat()))))
+                conn.execute(f'INSERT INTO {profile}_control VALUES (1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(account_id=TARGETS[profile]['id'],safeguards_version=PROTOCOL_VERSION,updated_at=datetime.now(timezone.utc).isoformat()))))
             conn.commit()
         client=stack.enter_context(TestClient(api.create_app(),base_url=base,raise_server_exceptions=False))
         def route_api(route):
@@ -57,10 +58,16 @@ def run():
                 page.get_by_label('Maximum contracts per symbol').select_option('2')
                 page.get_by_label('Planned risk per trade ($)').fill('100')
                 page.get_by_label('Total open stop-risk budget ($)').fill('200')
+                page.get_by_label('Overnight maximum contracts').select_option('2')
+                page.get_by_label('Minimum overnight cooldown (minutes)').fill('7')
+                page.get_by_label('Maximum overnight spread (ticks)').fill('3')
                 page.get_by_role('button',name='Save safeguards',exact=True).click()
                 expect(page.locator('.run-panel [role=status]')).to_contain_text('Active limits are unchanged')
                 page.reload()
                 expect(page.get_by_label('Cumulative account loss lock ($)')).to_have_value('1000')
+                expect(page.get_by_label('Overnight maximum contracts')).to_have_value('2')
+                expect(page.get_by_label('Minimum overnight cooldown (minutes)')).to_have_value('7')
+                expect(page.get_by_label('Maximum overnight spread (ticks)')).to_have_value('3')
                 row=page.get_by_role('row').filter(has_text='Cumulative account loss lock ($)')
                 expect(row.get_by_role('cell').nth(1)).to_have_text('$500.00')
                 page.get_by_role('button',name='Review and apply',exact=True).click()

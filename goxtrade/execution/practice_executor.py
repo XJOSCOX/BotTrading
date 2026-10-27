@@ -72,7 +72,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version="account-limits-v1", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version=safeguards.PROTOCOL_VERSION, account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)
@@ -146,7 +146,7 @@ def claim(job):
                     if saved and crossover_key(json.loads(saved[0])) == event:
                         return False
         active = [j for j in active if j["state"] not in ("Closed", "Rejected")]
-        if overnight_policy.overnight() and (active or job.get("quantity",1)!=1):
+        if overnight_policy.overnight() and (active or job.get('quantity',1)>overnight_policy.quantity(job.get('quantity',1),limits=safeguards.active(TARGET['gate_id'],conn))):
             return False
         if active:
             if (len(active) >= 3 or job.get("quantity") != 1
@@ -656,7 +656,7 @@ def cycle(token):
                    initial_risk_usd=abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"],
                    signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
-                   sizing_reason="Overnight: capped at 1 contract" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
+                   sizing_reason=f"Overnight: configured maximum {overnight_policy.quantity(settings['quantities'][micro])}; manager/risk selected {payload['size']}" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
                    side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"],
                    automation_session=session_settings(settings).get("id"))
         if not claim(job):

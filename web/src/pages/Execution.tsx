@@ -24,11 +24,35 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
     credential = !!config.credentials_present,
     target = config.targets[profile],
     automation = settings.automation || settings.strategy_testing,
-    savedStrategies = (config.policies?.[profile]?.strategies || []).map(
-      (name: string) => config.strategies.find((s: Json) => s.name === name)?.id,
-    ).filter(Boolean),
-    activeSizes = Object.fromEntries(automation?.policy?.symbol_quantities || []);
-  const lossLimit=p.safeguards?.active?.loss_lock ?? config.safeguards?.[profile]?.active?.loss_lock;
+    savedStrategies = (config.policies?.[profile]?.strategies || [])
+      .map(
+        (name: string) =>
+          config.strategies.find((s: Json) => s.name === name)?.id,
+      )
+      .filter(Boolean),
+    activeSizes = Object.fromEntries(
+      automation?.policy?.symbol_quantities || [],
+    );
+  const lossLimit =
+    p.safeguards?.active?.loss_lock ??
+    config.safeguards?.[profile]?.active?.loss_lock;
+  const sizeFor = (symbol: string) => {
+    if (
+      (symbol === "MYM" && !settings.enable_mym) ||
+      (settings.enabled &&
+        automation &&
+        !automation.policy.symbols.includes(symbol))
+    )
+      return "Off";
+    if (!settings.enabled) return settings.quantities?.[symbol] ?? "Not set";
+    const requested = automation
+      ? (activeSizes[symbol] ?? automation.policy.requested_quantity)
+      : settings.quantities?.[symbol];
+    const cap = p.effective_limits?.max_contracts;
+    if (!Number.isFinite(requested) || !Number.isFinite(cap))
+      return "Not verified";
+    return Math.min(requested, cap, automation?.policy?.max_contracts ?? cap);
+  };
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const result = await act(`/execution/${profile}/${dialog}`, {
@@ -73,20 +97,13 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             {["MNQ", "MES", "MYM"].map((s) => (
               <Metric
                 key={s}
-                label={`${s} ${settings.enabled && automation ? "active max" : "saved"}`}
-                value={
-                  (settings.enabled && automation && !automation.policy.symbols.includes(s)) ||
-                  (s === "MYM" && !settings.enable_mym)
-                    ? "Off"
-                    : settings.enabled && automation
-                      ? Math.min(activeSizes[s] ?? automation.policy.requested_quantity, automation.policy.max_contracts)
-                      : (settings.quantities?.[s] ?? "Not set")
-                }
+                label={`${s} ${settings.enabled ? "active max" : "saved"}`}
+                value={sizeFor(s)}
               />
             ))}
           </div>
           <Metric
-            label={`Realized account loss / ${lossLimit!=null?money(lossLimit):"configured"} lock`}
+            label={`Realized account loss / ${lossLimit != null ? money(lossLimit) : "configured"} lock`}
             value={p.gate?.loss != null ? money(p.gate.loss) : "Not verified"}
             tone={p.gate?.locked ? "negative" : ""}
           />
@@ -109,7 +126,9 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             onClick={() => open(profile === "practice" ? "start" : "arm")}
           >
             <Play size={16} />
-            {profile === "practice" ? "Start Practice automation" : "Start Leader"}
+            {profile === "practice"
+              ? "Start Practice automation"
+              : "Start Leader"}
           </button>
           <button
             disabled={busy}
@@ -307,7 +326,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             />
             {p.gate?.locked && (
               <Toggle
-                label={`I acknowledge the ${lossLimit!=null?money(lossLimit):"configured"} loss lock and authorize resetting this account's baseline.`}
+                label={`I acknowledge the ${lossLimit != null ? money(lossLimit) : "configured"} loss lock and authorize resetting this account's baseline.`}
                 value={ack}
                 onChange={setAck}
               />

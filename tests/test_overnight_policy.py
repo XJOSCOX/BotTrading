@@ -6,10 +6,13 @@ from goxtrade.strategies import overnight_policy as p
 from goxtrade.market.market_session import CENTRAL
 from tests import test_multi_symbol_entries as multi
 from tests.test_multi_symbol_entries import job
+from goxtrade.execution.safeguards import Limits
 
 
 class OvernightTests(unittest.TestCase):
     def setUp(self):
+        limits=patch.object(p,'active_limits',return_value=Limits())
+        limits.start();self.addCleanup(limits.stop)
         self.now = datetime(2026, 9, 24, 7, 0, 2, tzinfo=CENTRAL)
         self.end = pd.Timestamp(self.now).tz_convert('UTC').floor('15min')-pd.Timedelta(minutes=15)
         self.bars = pd.DataFrame(dict(time=pd.date_range(end=self.end, periods=52, freq='15min'),
@@ -36,6 +39,16 @@ class OvernightTests(unittest.TestCase):
             self.assertEqual(p.overnight(now),expected)
             self.assertEqual(p.quantity(3,now),1 if expected else 3)
             self.assertEqual(p.cooldown_seconds(300,now),900 if expected else 300)
+
+    def test_effective_manager_policy_preserves_saved_values_and_daytime(self):
+        from goxtrade.execution.execution_policy import ExecutionPolicy
+        policy=ExecutionPolicy(requested_quantity=3,max_contracts=3,symbol_quantities=(('MNQ',3),('MES',2)))
+        before=policy.to_dict()
+        effective=p.effective_policy(policy,self.now,limits=Limits(max_contracts=2,overnight_max_contracts=3))
+        self.assertEqual((effective.max_contracts,effective.requested_quantity,effective.cooldown_minutes),(2,2,15))
+        self.assertEqual(effective.symbol_quantities,(('MNQ',2),('MES',2)))
+        self.assertEqual(policy.to_dict(),before)
+        self.assertIs(p.effective_policy(policy,self.now.replace(hour=10)),policy)
 
     def test_single_strategy_allowed_but_current_and_enabled_required(self):
         self.history = [self.signal]
@@ -87,6 +100,15 @@ class OvernightTests(unittest.TestCase):
         self.bars = pd.DataFrame()
         self.history = []
         self.assertIsNone(self.result())
+
+    def test_saved_night_limits_control_quantity_cooldown_and_spread(self):
+        limits=Limits(max_contracts=3,overnight_max_contracts=2,overnight_cooldown_minutes=7,overnight_max_spread_ticks=3)
+        self.assertEqual(p.quantity(3,self.now,limits=limits),2)
+        self.assertEqual(p.cooldown_seconds(300,self.now,limits=limits),420)
+        self.assertEqual(p.cooldown_seconds(1200,self.now,limits=limits),1200)
+        self.quote['best_ask']=151.75
+        self.assertIsNone(p.evaluate(self.signal,self.history,{'CRT','EMA Pullback'},self.bars,self.quote,'micro',self.now,limits=limits))
+        self.assertIn('exceeds 2',self.result())
 
     def test_existing_exposure_blocks_before_data_lookup(self):
         for positions,orders,jobs in [([{}],[],[]),([],[{}],[]),([],[],[dict(alert_id=1,state='Unknown')])]:

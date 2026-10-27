@@ -62,7 +62,11 @@ def profile_state(conn, tables, profile):
                "symbol": job.get("symbol"), "strategy": job.get("strategy", "Unknown"), "quantity": job.get("quantity"),
                "direction": "LONG" if job.get("side") == 0 else "SHORT"}
               for job in jobs if job["alert_id"] in matched]
-    return dict(settings=settings, runtime=runtime, gate=gate, broker=history,safeguards=safeguards.read(target['gate_id']),
+    limits=safeguards.read(target['gate_id'])
+    from goxtrade.strategies.overnight_policy import overnight
+    night=overnight()
+    effective=dict(overnight=night,max_contracts=min(limits['active']['max_contracts'],limits['active']['overnight_max_contracts']) if night else limits['active']['max_contracts'])
+    return dict(settings=settings, runtime=runtime, gate=gate, broker=history,safeguards=limits,effective_limits=effective,
                 jobs=sorted(jobs, key=lambda row: row.get("sent_at", 0), reverse=True)[:300],
                 fills=sorted(fills, key=lambda row: row.get("creationTimestamp", ""), reverse=True)[:150],
                 trades=trades, totals=summary(matched), target=target)

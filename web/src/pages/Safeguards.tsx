@@ -1,14 +1,21 @@
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Save, ShieldCheck } from "lucide-react";
 import { Field, Metric, Notice, Table, Toggle } from "../components";
 import { money, type Json } from "../api";
 import type { PageProps } from "../pageTypes";
 
 const fields = [
-  ["loss_lock", "Cumulative account loss lock ($)"],
-  ["max_contracts", "Maximum contracts per symbol"],
-  ["max_trade_risk", "Planned risk per trade ($)"],
-  ["max_open_risk", "Total open stop-risk budget ($)"],
+  ["loss_lock", "Cumulative account loss lock ($)", "money"],
+  ["max_contracts", "Maximum contracts per symbol", "count"],
+  ["max_trade_risk", "Planned risk per trade ($)", "money"],
+  ["max_open_risk", "Total open stop-risk budget ($)", "money"],
+  ["overnight_max_contracts", "Overnight maximum contracts", "count"],
+  [
+    "overnight_cooldown_minutes",
+    "Minimum overnight cooldown (minutes)",
+    "minutes",
+  ],
+  ["overnight_max_spread_ticks", "Maximum overnight spread (ticks)", "ticks"],
 ];
 
 export function Safeguards({ config, live, profile, act, busy }: PageProps) {
@@ -72,7 +79,7 @@ export function Safeguards({ config, live, profile, act, busy }: PageProps) {
     }
   };
   return (
-    <section>
+    <section className="safeguards">
       <div className="context-bar">
         <span>{target.name}</span>
         <span>
@@ -83,48 +90,66 @@ export function Safeguards({ config, live, profile, act, busy }: PageProps) {
               : "Saved limits are active"}
         </span>
       </div>
+      {p.runtime?.safeguards_version !== "account-limits-v2" && (
+        <Notice>
+          The account worker needs a restart to load overnight controls. Wait
+          until positions and orders are closed, then pause entries and restart
+          workers. Saving does not apply changes.
+        </Notice>
+      )}
       <div className="execution-layout">
         <form className="run-panel" onSubmit={save}>
           <h2>Account safeguards</h2>
-          {fields.map(([key, label]) => (
-            <Field key={key} label={label}>
-              {key === "max_contracts" ? (
-                <select
-                  value={draft[key] ?? ""}
-                  disabled={busy}
-                  onChange={(e) => {
-                    setDraft({ ...draft, [key]: Number(e.target.value) });
-                    setDirty(true);
-                    setReview(false);
-                  }}
-                >
-                  {[1, 2, 3, 4].map((n) => (
-                    <option key={n} value={n}>
-                      {n}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="number"
-                  min="0.01"
-                  max="1000000"
-                  step="0.01"
-                  required
-                  value={draft[key] ?? ""}
-                  disabled={busy}
-                  onChange={(e) => {
-                    setDraft({
-                      ...draft,
-                      [key]:
-                        e.target.value === "" ? "" : Number(e.target.value),
-                    });
-                    setDirty(true);
-                    setReview(false);
-                  }}
-                />
-              )}
-            </Field>
+          {fields.map(([key, label, type]) => (
+            <Fragment key={key}>
+              {key === "overnight_max_contracts" && <h3>Overnight limits</h3>}
+              <Field label={label}>
+                {type === "count" ? (
+                  <select
+                    value={draft[key] ?? ""}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setDraft({ ...draft, [key]: Number(e.target.value) });
+                      setDirty(true);
+                      setReview(false);
+                    }}
+                  >
+                    {[1, 2, 3, 4].map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="number"
+                    min={
+                      type === "money" ? "0.01" : type === "minutes" ? "0" : "1"
+                    }
+                    max={
+                      type === "money"
+                        ? "1000000"
+                        : type === "minutes"
+                          ? "1440"
+                          : "100"
+                    }
+                    step={type === "money" ? "0.01" : "1"}
+                    required
+                    value={draft[key] ?? ""}
+                    disabled={busy}
+                    onChange={(e) => {
+                      setDraft({
+                        ...draft,
+                        [key]:
+                          e.target.value === "" ? "" : Number(e.target.value),
+                      });
+                      setDirty(true);
+                      setReview(false);
+                    }}
+                  />
+                )}
+              </Field>
+            </Fragment>
           ))}
           <button
             className="primary"
@@ -139,14 +164,10 @@ export function Safeguards({ config, live, profile, act, busy }: PageProps) {
           <h2>Active limits</h2>
           <Table
             heads={["Safeguard", "Active", "Saved"]}
-            rows={fields.map(([key, label]) => [
+            rows={fields.map(([key, label, type]) => [
               label,
-              key === "max_contracts"
-                ? record.active[key]
-                : money(record.active[key]),
-              key === "max_contracts"
-                ? record.saved[key]
-                : money(record.saved[key]),
+              type !== "money" ? record.active[key] : money(record.active[key]),
+              type !== "money" ? record.saved[key] : money(record.saved[key]),
             ])}
           />
           <div className="minor-metrics">
@@ -175,6 +196,11 @@ export function Safeguards({ config, live, profile, act, busy }: PageProps) {
             selected account, not follower totals. Planned risk is an estimate;
             gaps, slippage and costs can exceed it. Contract sizes must remain
             within the supported 1–4 range.
+          </p>
+          <p className="footnote">
+            Overnight limits apply from 17:00 to 08:30 CT. The account contract
+            maximum and normal cooldown still apply when stricter. Trend,
+            volume, freshness and protection checks remain required.
           </p>
           <button
             disabled={

@@ -24,7 +24,7 @@ class SafeguardTests(unittest.TestCase):
                   patch.object(executor,'TARGET',TARGETS['practice']),patch.object(executor,'PROFILE','practice')):
             p.start();self.addCleanup(p.stop)
         with closing(executor.db()) as conn:
-            conn.execute("UPDATE practice_control SET settings=?,status=? WHERE id=1",(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version='account-limits-v1',account_id=41,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
+            conn.execute("UPDATE practice_control SET settings=?,status=? WHERE id=1",(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,account_id=41,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
         self.balance=10000.
 
     def provider(self,path,payload,token=None):
@@ -52,7 +52,7 @@ class SafeguardTests(unittest.TestCase):
     def test_leader_safeguards_are_separate_and_do_not_enable_leader(self):
         with closing(executor.db()) as conn:
             conn.execute('CREATE TABLE leader_control(id INTEGER PRIMARY KEY,settings TEXT,status TEXT)')
-            conn.execute('INSERT INTO leader_control VALUES(1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version='account-limits-v1',account_id=42,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
+            conn.execute('INSERT INTO leader_control VALUES(1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,account_id=42,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
         original=sg.read(41)
         self.save(account=42,loss_lock=1000,max_contracts=2)
         self.apply(profile='leader')
@@ -124,8 +124,18 @@ class SafeguardTests(unittest.TestCase):
             executor.check_order_safeguards(order,dict(loss=0),[position],[stop],[job])
 
     def test_invalid_values_and_inconsistent_budgets_fail_closed(self):
-        for changes in (dict(loss_lock=True),dict(loss_lock=float('nan')),dict(max_contracts=5),dict(max_contracts=True),dict(max_trade_risk=200),dict(max_open_risk=600),dict(unknown=1)):
+        for changes in (dict(loss_lock=True),dict(loss_lock=float('nan')),dict(max_contracts=5),dict(max_contracts=True),dict(max_trade_risk=200),dict(max_open_risk=600),dict(unknown=1),dict(overnight_max_contracts=5),dict(overnight_max_contracts=True),dict(overnight_cooldown_minutes=-1),dict(overnight_max_spread_ticks=0),dict(overnight_max_spread_ticks=1.5)):
             with self.assertRaises(ValueError):sg.Limits.parse({**asdict(sg.Limits()),**changes})
+
+    def test_legacy_rows_get_old_night_defaults_without_rewriting_saved_bytes(self):
+        old=dict(loss_lock=500.,max_contracts=3,max_trade_risk=250.,max_open_risk=500.)
+        with closing(executor.db()) as conn:
+            conn.execute('INSERT INTO account_safeguards VALUES (?,?,?,7)',(41,json.dumps(old),json.dumps(old)));conn.commit()
+            before=tuple(conn.execute('SELECT saved,active,revision FROM account_safeguards WHERE account_id=41').fetchone())
+        normalized=sg.read(41)
+        self.assertEqual(normalized['saved'],{**old,'overnight_max_contracts':1,'overnight_cooldown_minutes':15,'overnight_max_spread_ticks':2})
+        with closing(executor.db()) as conn:
+            self.assertEqual(tuple(conn.execute('SELECT saved,active,revision FROM account_safeguards WHERE account_id=41').fetchone()),before)
 
 
 if __name__=='__main__':unittest.main()

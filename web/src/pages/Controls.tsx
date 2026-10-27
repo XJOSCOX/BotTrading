@@ -206,7 +206,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
             </div>
             <div className="detail-row">
               <span>Overnight minimum delay</span>
-              <b>15 minutes</b>
+              <b>{config.safeguards?.[profile]?.active?.overnight_cooldown_minutes!=null?`${config.safeguards[profile].active.overnight_cooldown_minutes} minutes`:"Not verified"}</b>
             </div>
             <p className="muted">
               Strategy-based stops. Open positions keep their original

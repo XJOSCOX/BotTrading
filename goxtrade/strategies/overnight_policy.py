@@ -2,6 +2,7 @@
 import math
 from contextlib import closing
 from datetime import datetime, time
+from dataclasses import replace
 import pandas as pd
 from goxtrade.market.market_session import CENTRAL, market_session
 from goxtrade.strategies.signal_candles import signal_candles
@@ -16,12 +17,32 @@ def overnight(now=None):
     return local.time() >= time(17) or local.time() < time(8,30)
 
 
-def cooldown_seconds(configured, now=None):
-    return max(configured,900) if overnight(now) else configured
+def active_limits():
+    from goxtrade.config.execution_identity import TARGET
+    from goxtrade.execution.safeguards import active
+    return active(TARGET['gate_id'])
 
 
-def quantity(configured, now=None):
-    return min(configured,1) if overnight(now) else configured
+def cooldown_seconds(configured, now=None, *, limits=None):
+    return max(configured,(limits or active_limits()).overnight_cooldown_minutes*60) if overnight(now) else configured
+
+
+def quantity(configured, now=None, *, limits=None):
+    if not overnight(now):
+        return configured
+    limits=limits or active_limits()
+    return min(configured,limits.max_contracts,limits.overnight_max_contracts)
+
+
+def effective_policy(policy,now=None,*,limits=None):
+    """Cap before arbitration, so the manager selects the actual eligible quantity."""
+    if not overnight(now):
+        return policy
+    limits=limits or active_limits()
+    cap=min(policy.max_contracts,limits.max_contracts,limits.overnight_max_contracts)
+    return replace(policy,max_contracts=cap,requested_quantity=min(policy.requested_quantity,cap),
+                   symbol_quantities=tuple((s,min(q,cap)) for s,q in policy.symbol_quantities),
+                   cooldown_minutes=max(policy.cooldown_minutes,limits.overnight_cooldown_minutes)).validate()
 
 
 def valid_trend_history(bars, expected):
@@ -37,7 +58,7 @@ def valid_trend_history(bars, expected):
                for stamp in expected_stamps.difference(pd.DatetimeIndex(stamps)))
 
 
-def evaluate(signal, history, enabled, bars, quote, contract_id, now):
+def evaluate(signal, history, enabled, bars, quote, contract_id, now, *, limits=None):
     if not overnight(now):
         return None
     if signal.get("signal") not in ("LONG", "SHORT"):
@@ -81,8 +102,9 @@ def evaluate(signal, history, enabled, bars, quote, contract_id, now):
     tick = 1.0 if signal["symbol"]=="YM=F" else .25
     if any(not isinstance(v,(float,int)) or not math.isfinite(v) or v<=0 for v in (bid,ask)) or ask<=bid:
         return "Overnight: invalid or crossed micro-contract bid/ask"
-    if any(abs(v/tick-round(v/tick))>1e-6 for v in (bid,ask)) or ask-bid>2*tick+1e-8:
-        return "Overnight: micro-contract spread exceeds two ticks or is off tick grid"
+    spread=(limits or active_limits()).overnight_max_spread_ticks
+    if any(abs(v/tick-round(v/tick))>1e-6 for v in (bid,ask)) or ask-bid>spread*tick+1e-8:
+        return f"Overnight: micro-contract spread exceeds {spread} ticks or is off tick grid"
     return None
 
 

@@ -238,9 +238,22 @@ new explicitly authorized Start. Broker/platform restrictions and the supported
 one-to-four contract capability are not bypassed. Loss and stop-risk estimates
 cannot guarantee fill prices or maximum realized losses.
 
-Safeguards validation: 633 regression tests passed, plus production build and
+**Overnight limits** on the same page configure the contract maximum, minimum
+post-close cooldown and maximum bid/ask spread in ticks, independently per account.
+Existing installations retain their prior defaults: one contract, 15 minutes and
+two ticks. Reading older saved records supplies these defaults without rewriting
+their saved values or revisions. Changes use the same Save, then explicit paused
+and broker-flat Apply workflow. The stricter regular cooldown and account contract
+maximum still win; trend, volume, fresh-data and broker-stop checks remain enforced.
+The manager applies the overnight cap before arbitration, with the same cap checked
+at atomic claim and final preflight. Execution displays the effective size rather
+than the larger saved daytime request. Saved strategy/session settings are not
+rewritten by this adjustment.
+
+Safeguards validation: 638 regression tests passed, plus production build and
 desktop/mobile browser checks for saved/active separation, reload persistence,
-explicit higher-limit approval and account isolation. No real safeguard values
+explicit higher-limit approval, account isolation and consistent overnight sizing
+through manager selection and submission. No real safeguard values
 were changed or accounts armed during deployment.
 
 ## Strategy Manager

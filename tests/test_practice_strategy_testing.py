@@ -174,6 +174,30 @@ class PracticeStrategyCycleTests(unittest.TestCase):
         executor.cycle("fixture")
         self.assertEqual(post.call_count,1)
 
+    def overnight_cycle(self,cap):
+        from goxtrade.execution.safeguards import Limits
+        post=self.prepare()
+        settings=executor.snapshot()[0]
+        session=settings['strategy_testing']
+        saved_policy={**session['policy'],'requested_quantity':3,'max_contracts':3,'symbol_quantities':[['MNQ',3]]}
+        executor.update_settings(quantities=dict(MNQ=3,MES=3,MYM=3),strategy_testing={**session,'policy':saved_policy})
+        before=executor.snapshot()[0]
+        limits=Limits(max_contracts=3,overnight_max_contracts=cap)
+        with patch('goxtrade.strategies.overnight_policy.overnight',return_value=True),patch('goxtrade.strategies.overnight_policy.entry_block',return_value=None),patch('goxtrade.execution.safeguards.active',return_value=limits):
+            executor.cycle('fixture')
+            self.assertEqual(post.call_count,1)
+            self.assertEqual(post.call_args.args[1]['size'],cap)
+            self.assertEqual(executor.snapshot()[2][0]['state'],'Submitted')
+            self.assertEqual(executor.snapshot()[0],before)
+            executor.cycle('fixture')
+            self.assertEqual(post.call_count,1)
+
+    def test_three_saved_contracts_default_overnight_cap_selects_and_submits_one(self):
+        self.overnight_cycle(1)
+
+    def test_three_saved_contracts_custom_overnight_cap_selects_and_submits_two(self):
+        self.overnight_cycle(2)
+
     def test_pause_and_unknown_response_cannot_generate_repeated_entries(self):
         import requests
         post=self.prepare()

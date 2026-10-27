@@ -225,7 +225,8 @@ class NativeApiTests(unittest.TestCase):
     def test_explicit_authorization_delegates_existing_safety_once_no_retry(self):
         target = api_module.identity.TARGETS["practice"]
         settings = dict(quantities=dict(MNQ=3,MES=2,MYM=1),enable_mym=False)
-        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True,safeguards_version='account-limits-v1')
+        from goxtrade.execution.safeguards import PROTOCOL_VERSION
+        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True,safeguards_version=PROTOCOL_VERSION)
         body = dict(name=target["name"],safeguards=True,quantities=settings["quantities"],strategies=["crt"])
         with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
                 patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Mocked broker unavailable")) as start:
@@ -242,7 +243,7 @@ class NativeApiTests(unittest.TestCase):
 
     def test_safeguard_save_is_persistent_and_does_not_apply_or_arm(self):
         original=self.client.get('/api/safeguards/practice').json()
-        body=dict(revision=original['revision'],loss_lock=1000.,max_contracts=2,max_trade_risk=100.,max_open_risk=200.)
+        body=dict(revision=original['revision'],loss_lock=1000.,max_contracts=2,max_trade_risk=100.,max_open_risk=200.,overnight_max_contracts=2,overnight_cooldown_minutes=7,overnight_max_spread_ticks=3)
         with patch.object(projectx_client,'post',side_effect=AssertionError('No broker mutation or reads needed for Save')),patch.object(practice_executor,'arm') as arm:
             response=self.post('/api/safeguards/practice',body)
             self.assertEqual(response.status_code,200,response.text)

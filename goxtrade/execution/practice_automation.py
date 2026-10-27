@@ -157,6 +157,9 @@ def selection(settings, history, account, gate, positions, orders, jobs, *, own_
     if live_clock:
         now=datetime.now(timezone.utc)
         state=replace(state,observed_at=now.isoformat())
+    from goxtrade.strategies import overnight_policy
+    from goxtrade.execution.safeguards import active as active_limits
+    policy=overnight_policy.effective_policy(policy,now,limits=active_limits(executor.TARGET['gate_id']))
     decisions=evaluate(candidates,state,policy,now.isoformat(),scope="broker")
     with closing(executor.db()) as conn:
         initialize(conn)
