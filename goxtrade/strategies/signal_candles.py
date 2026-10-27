@@ -9,6 +9,11 @@ def signal_candles(minutes, now, interval=15, strict=False):
     frame["time"] = pd.to_datetime(frame["time"],utc=True)
     if strict and frame["time"].duplicated().any():
         raise ValueError("Duplicate source minutes")
+    if "complete" in frame:
+        frame = frame.loc[frame["complete"].eq(True)]
+    if "asof_time" in frame:
+        observed = pd.to_datetime(frame["asof_time"], utc=True, errors="coerce")
+        frame = frame.loc[frame["asof_time"].isna() | (observed.notna() & observed.le(pd.Timestamp(now)))]
     frame = frame.loc[frame["time"]+pd.Timedelta(minutes=1)<=pd.Timestamp(now)].sort_values("time").drop_duplicates("time",keep="last")
     rows = []
     for stamp, group in frame.groupby(frame["time"].dt.floor(f"{interval}min")):

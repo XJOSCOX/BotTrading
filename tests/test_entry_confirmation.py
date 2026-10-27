@@ -45,6 +45,13 @@ class ConfirmationTests(unittest.TestCase):
         self.bars = self.bars.drop(index=12)
         self.assertEqual(self.evaluate()['state'],'Waiting')
 
+    def test_incomplete_source_minute_is_not_a_completed_confirmation(self):
+        self.bars['complete']=True
+        self.bars.loc[15,'complete']=False
+        result=self.evaluate()
+        self.assertEqual(result['state'],'Waiting')
+        self.assertFalse(result['history_complete'])
+
     def test_complete_history_is_independent_of_price_action_confirmation(self):
         self.bars.loc[14,'close'] = 99
         waiting=self.evaluate()

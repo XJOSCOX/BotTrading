@@ -18,6 +18,32 @@ def expand(frame):
 
 
 class FifteenMinuteTests(unittest.TestCase):
+    def test_explicit_incomplete_minute_cannot_confirm_a_signal_candle(self):
+        frame=expand(bars([100.,101.]))
+        frame['complete']=True
+        frame.loc[20,'complete']=False
+        now=frame.iloc[-1]['time']+pd.Timedelta(minutes=1)
+        result=signal_candles(frame,now,15)
+        self.assertEqual(len(result),1)
+        self.assertEqual(result.iloc[0]['close'],100.)
+
+    def test_source_not_available_at_evaluation_time_cannot_confirm(self):
+        frame=expand(bars([100.,101.]))
+        now=frame.iloc[-1]['time']+pd.Timedelta(minutes=1)
+        frame['asof_time']=frame['time']+pd.Timedelta(minutes=1)
+        frame.loc[20,'asof_time']=now+pd.Timedelta(seconds=1)
+        self.assertEqual(len(signal_candles(frame,now,15)),1)
+        self.assertEqual(len(signal_candles(frame,now+pd.Timedelta(seconds=1),15)),2)
+
+    def test_optional_availability_metadata_does_not_erase_legacy_history(self):
+        frame=expand(bars([100.,101.]))
+        now=frame.iloc[-1]['time']+pd.Timedelta(minutes=1)
+        frame['asof_time']=pd.Series([None]*len(frame),dtype=object)
+        frame.loc[20,'asof_time']=now.isoformat()
+        self.assertEqual(len(signal_candles(frame,now,15)),2)
+        frame.loc[20,'asof_time']='invalid-timestamp'
+        self.assertEqual(len(signal_candles(frame,now,15)),1)
+
     def test_partial_and_missing_minutes_do_not_make_candles(self):
         frame = expand(bars([100.,101.,999.]))
         now = frame.iloc[30]["time"]+pd.Timedelta(minutes=3)
