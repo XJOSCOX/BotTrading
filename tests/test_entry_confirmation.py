@@ -111,6 +111,70 @@ class ConfirmationTests(unittest.TestCase):
                 conn.commit()
             self.assertEqual(c.check(self.signal,self.now)['state'],'Confirmed')
 
+    def test_live_trade_arriving_during_read_is_not_mistaken_for_future_data(self):
+        earlier = pd.Timestamp(self.now)
+        observed = earlier+pd.Timedelta(milliseconds=800)
+        with tempfile.TemporaryDirectory() as directory, patch.object(live_store,'DB_PATH',Path(directory)/'clock.db'), \
+                patch.object(c,'PROFILE','practice'), patch.object(c,'chart_history',return_value=self.bars), \
+                patch.object(c,'contract_for_symbol',return_value='contract'), patch.object(c,'datetime') as clock:
+            clock.now.side_effect=[earlier.to_pydatetime(),observed.to_pydatetime()]
+            with closing(live_store.connect()) as conn:
+                conn.execute("INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)",
+                             ('NQ=F','contract','trade',103.,(earlier+pd.Timedelta(milliseconds=300)).isoformat(),
+                              (earlier+pd.Timedelta(milliseconds=500)).isoformat()))
+                conn.commit()
+            result=c.check(self.signal)
+            self.assertEqual(result['state'],'Confirmed',result)
+
+    def test_explicit_asof_uses_only_trade_events_already_received(self):
+        stamp=pd.Timestamp(self.now)
+        with tempfile.TemporaryDirectory() as directory, patch.object(live_store,'DB_PATH',Path(directory)/'asof.db'), \
+                patch.object(c,'PROFILE','practice'), patch.object(c,'chart_history',return_value=self.bars), \
+                patch.object(c,'contract_for_symbol',return_value='contract'):
+            with closing(live_store.connect()) as conn:
+                for price,event,receipt in ((103.,stamp-pd.Timedelta(seconds=1),stamp-pd.Timedelta(milliseconds=500)),
+                                            (94.,stamp-pd.Timedelta(milliseconds=100),stamp+pd.Timedelta(milliseconds=500)),
+                                            (94.,stamp+pd.Timedelta(seconds=1),stamp)):
+                    conn.execute("INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)",
+                                 ('NQ=F','contract','trade',price,event.isoformat(),receipt.isoformat()))
+                conn.commit()
+            result=c.check(self.signal,self.now)
+            self.assertEqual(result['state'],'Confirmed',result)
+            self.assertEqual(result['price'],103.)
+
+    def test_live_clock_refresh_does_not_accept_future_or_stale_trades(self):
+        earlier=pd.Timestamp(self.now)
+        observed=earlier+pd.Timedelta(seconds=1)
+        for event,receipt in ((observed+pd.Timedelta(seconds=1),earlier),
+                              (observed-pd.Timedelta(seconds=11),observed)):
+            with self.subTest(event=event), tempfile.TemporaryDirectory() as directory, \
+                    patch.object(live_store,'DB_PATH',Path(directory)/'invalid-clock.db'), \
+                    patch.object(c,'chart_history',return_value=self.bars), \
+                    patch.object(c,'contract_for_symbol',return_value='contract'), patch.object(c,'datetime') as clock:
+                clock.now.side_effect=[earlier.to_pydatetime(),observed.to_pydatetime()]
+                with closing(live_store.connect()) as conn:
+                    conn.execute("INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)",
+                                 ('NQ=F','contract','trade',103.,event.isoformat(),receipt.isoformat()))
+                    conn.commit()
+                result=c.check(self.signal)
+                self.assertEqual(result['state'],'Waiting')
+                self.assertEqual(result['reason'],'Fresh index trade required')
+
+    def test_clock_refresh_cannot_extend_the_signal_entry_window(self):
+        earlier=pd.Timestamp('2026-10-01T16:24:59.800Z')
+        observed=pd.Timestamp('2026-10-01T16:25:00Z')
+        with tempfile.TemporaryDirectory() as directory, patch.object(live_store,'DB_PATH',Path(directory)/'expiry.db'), \
+                patch.object(c,'PROFILE','practice'), patch.object(c,'chart_history',return_value=self.bars), \
+                patch.object(c,'contract_for_symbol',return_value='contract'), patch.object(c,'datetime') as clock:
+            clock.now.side_effect=[earlier.to_pydatetime(),observed.to_pydatetime()]
+            with closing(live_store.connect()) as conn:
+                conn.execute("INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)",
+                             ('NQ=F','contract','trade',103.,earlier.isoformat(),earlier.isoformat()))
+                conn.commit()
+            result=c.check(self.signal)
+            self.assertEqual(result['state'],'Cancelled')
+            self.assertEqual(result['reason'],'15m setup expired or inactive')
+
 
 class IntegrationTests(unittest.TestCase):
     setUp = multi.MultiSymbolTests.setUp

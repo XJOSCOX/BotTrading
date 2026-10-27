@@ -160,6 +160,7 @@ def evaluate_indicator_entry(signal, minutes, price, now):
 
 
 def check(signal, now=None):
+    live_clock = now is None
     now = now or datetime.now(timezone.utc)
     source_symbol = (signal.get("reference_symbol") or signal["symbol"]) if signal.get("entry_policy")=="indicator-event-v1" else signal["symbol"]
     if signal.get("entry_policy") in ("indicator-event-v1","previous-box-v1"):
@@ -172,19 +173,27 @@ def check(signal, now=None):
         row = conn.execute("SELECT state,reason FROM entry_confirmations WHERE profile=? AND alert_id=?",(PROFILE,signal["id"])).fetchone()
         if row and row["state"] == "Cancelled":
             return dict(row)
-        tick = conn.execute("SELECT price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND price IS NOT NULL ORDER BY id DESC LIMIT 1",
-                            (source_symbol,contract_for_symbol(source_symbol))).fetchone()
+        query = "SELECT id,price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND price IS NOT NULL"
+        parameters = [source_symbol, contract_for_symbol(source_symbol)]
+        if not live_clock:
+            # Explicit replay clocks cannot see trades received after that instant.
+            query += " AND julianday(event_time)<=julianday(?) AND julianday(received_at)<=julianday(?)"
+            parameters.extend([pd.Timestamp(now).isoformat()]*2)
+        tick = conn.execute(query+" ORDER BY id DESC LIMIT 1", parameters).fetchone()
+        if live_clock:
+            # The trade can arrive while SQLite/history setup is running.
+            now = datetime.now(timezone.utc)
         price = valid_price(source_symbol,tick["price"]) if tick else None
         fresh = tick and all(pd.notna(stamp:=pd.to_datetime(tick[k],utc=True,errors="coerce")) and 0<=(pd.Timestamp(now)-stamp).total_seconds()<=10 for k in ("event_time","received_at"))
         source = None
         if fresh and signal.get("entry_policy") in ("indicator-event-v1","previous-box-v1"):
-            from goxtrade.data.strategy_history import load_strategy_minutes, latest_trade
+            from goxtrade.data.strategy_history import load_strategy_minutes
             contract = contract_for_symbol(source_symbol)
             source = load_strategy_minutes(source_symbol, contract, now, hours=24*16 if signal.get("strategy_id")=="previous_day_box" else 72)
-            last = latest_trade(source_symbol, contract)
-            bounds = conn.execute("SELECT MIN(price),MAX(price) FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND id>? AND price>0",
-                                  (source_symbol, contract, signal.get("detection_sequence") or 0)).fetchone()
-            signal = {**signal, "_validation_sequence": last["id"] if last else None,
+            bounds = conn.execute("SELECT MIN(price),MAX(price) FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND id>? AND id<=? AND price>0 AND julianday(event_time)<=julianday(?) AND julianday(received_at)<=julianday(?)",
+                                  (source_symbol, contract, signal.get("detection_sequence") or 0, tick["id"],
+                                   pd.Timestamp(now).isoformat(), pd.Timestamp(now).isoformat())).fetchone()
+            signal = {**signal, "_validation_sequence": tick["id"],
                       "_post_detection_low": bounds[0] if bounds[0] is not None else price,
                       "_post_detection_high": bounds[1] if bounds[1] is not None else price}
         result = evaluate(signal,source if source is not None else chart_history(signal["symbol"]),price,now) if fresh else dict(state="Waiting",reason="Fresh index trade required",price=None)

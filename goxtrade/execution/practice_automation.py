@@ -140,7 +140,7 @@ def selection(settings, history, account, gate, positions, orders, jobs, *, own_
             contract=contracts[micro]
             spec = strategy_spec(alert.get("strategy_id") or alert["strategy"])
             if spec.id not in session["strategies"]: continue
-            confirmation = entry_confirmation.check(alert,now)
+            confirmation = entry_confirmation.check(alert, None if live_clock else now)
             quote = latest_trade(micro+"=F",contract)
             confirmed = alert.get("confirmed_at") or (stamp(alert["setup_time"])+timedelta(minutes=spec.signal_minutes)).isoformat()
             expiry = stamp(confirmed)+timedelta(seconds=alert.get("entry_window_seconds",600 if spec.runtime_adapter is None else spec.expiration_seconds))
