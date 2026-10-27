@@ -51,11 +51,16 @@ class NativeApiTests(unittest.TestCase):
             practice = state.alert_entry_decisions(conn, tables, [42, 43], "practice")
             leader = state.alert_entry_decisions(conn, tables, [42], "leader")
             self.assertEqual(practice[42]["detail"], "Cooldown remains active")
+            self.assertEqual(practice[42]['previous'][0]['detail'],'Old Practice reason')
             self.assertEqual(leader[42]["detail"], "Leader disabled")
             self.assertNotIn(43, practice)
             self.assertEqual(state.alert_entry_decisions(conn, set(), [42], "practice"), {})
             self.assertEqual(state.alert_entry_decisions(conn, tables, [], "practice"), {})
             self.assertEqual(len(state.alert_entry_decisions(conn, tables, range(600), "practice")), 1)
+            event('decision:42',42,'Manager: Signal entry window expired')
+            expired=state.alert_entry_decisions(conn,tables,[42],'practice')[42]
+            self.assertIn('expired',expired['detail'])
+            self.assertEqual([item['detail'] for item in expired['previous']],['Cooldown remains active','Old Practice reason'])
 
     def test_old_broker_jobs_remain_excluded_from_watch_history(self):
         with closing(live_store.connect()) as conn:

@@ -559,6 +559,13 @@ function Alert({
             {decision?.time && (
               <small>Last recorded decision: {ct(decision.time)}</small>
             )}
+            {decision?.previous?.map((earlier: Json) => (
+              <p key={earlier.id}>
+                <small>
+                  Earlier block ({ct(earlier.time)}): {earlier.detail}
+                </small>
+              </p>
+            ))}
           </div>
         </div>
       )}

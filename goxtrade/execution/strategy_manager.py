@@ -67,10 +67,16 @@ def eligibility(candidate, state, policy, now, scope):
             return "DATA_UNAVAILABLE", "Executable price is stale or unavailable"
         if not 0 <= (current-stamp(state.observed_at)).total_seconds() <= 10:
             return "DATA_UNAVAILABLE", "Portfolio state snapshot is stale"
+        confirmation = json.loads(candidate.evidence_json).get('entry_confirmation', {})
+        confirmation_reason = None
+        if isinstance(confirmation,dict) and confirmation.get('state') in ('Waiting','Cancelled') and isinstance(confirmation.get('reason'),str) and confirmation['reason'].strip():
+            confirmation_reason = f"Entry confirmation {confirmation['state'].lower()}: {confirmation['reason'][:500]}"
+        if candidate.confirmed is not True and confirmation.get('state') == 'Cancelled':
+            return "REJECTED", confirmation_reason or "Strategy entry confirmation was cancelled"
         if candidate.history_complete is not True:
-            return "DATA_UNAVAILABLE", "Required candle history is not verified complete"
+            return "DATA_UNAVAILABLE", confirmation_reason or "Required candle history is not verified complete"
         if candidate.confirmed is not True:
-            return "REJECTED", "Strategy entry confirmation has not been revalidated"
+            return "REJECTED", confirmation_reason or "Strategy entry confirmation has not been revalidated"
         if candidate.execution_eligible is not True:
             return "EXECUTION_DISABLED", "Strategy execution eligibility is not established"
         levels = (candidate.entry_reference, candidate.price, candidate.stop, candidate.target)

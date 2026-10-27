@@ -1,6 +1,7 @@
 """Background watch-only evaluation, independent of the Streamlit page."""
 import json
 import logging
+import time
 import pandas as pd
 from contextlib import closing
 from datetime import datetime, timezone
@@ -157,11 +158,19 @@ def monitor_once():
             logging.warning("Monitor evaluation failed for %s %s (%s)", symbol, strategy, type(error).__name__)
 
 
-def run_monitor():
+def run_monitor(wakeup=None, executor_wakeup=None):
     wait = Event()
     while True:
+        observed = wakeup.version() if wakeup is not None else None
+        started = time.monotonic()
         try:
             monitor_once()
+            if executor_wakeup is not None:
+                executor_wakeup.notify()
         except Exception as error:
             logging.warning("Monitor cycle failed (%s)", type(error).__name__)
-        wait.wait(2)
+        if wakeup is None:
+            wait.wait(2)
+        else:
+            # Capture generation before work so commits during evaluation aren't lost.
+            wakeup.wait(observed, 2, not_before=started+.5)

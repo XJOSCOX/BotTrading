@@ -43,11 +43,12 @@ def evaluate(signal, minutes, price, now, *, profile=None):
         current,_ = evaluate_previous_day_box(minutes,price,now,config,symbol=signal["symbol"],contract_id=signal["source_contract"],quote_time=now,box_override=signal["box"])
         if current.get("unique_setup_id") != signal.get("unique_setup_id"):
             return dict(state="Cancelled",reason="Original box confirmation no longer valid: "+current["reason"],price=price)
-        return dict(state="Confirmed",reason="Original completed box reversal revalidated at executable price; stop retained",price=price)
+        return dict(state="Confirmed",reason="Original completed box reversal revalidated at executable price; stop retained",price=price,history_complete=True)
     if signal.get("entry_policy") == "indicator-event-v1":
         return evaluate_indicator_entry(signal, minutes, price, now)
+    history_complete = False
     def result(state, reason):
-        return dict(state=state, reason=reason, price=price)
+        return dict(state=state, reason=reason, price=price, history_complete=history_complete)
     if not window_open(signal, now,profile=profile) or signal.get("status") != "Active":
         return result("Cancelled", "15m setup expired or inactive")
     if signal.get("signal") not in ("LONG", "SHORT"):
@@ -73,6 +74,7 @@ def evaluate(signal, minutes, price, now, *, profile=None):
         values = frame[["open","high","low","close"]]
         if not values.map(lambda x: math.isfinite(x) and x>0).all().all():
             return result("Waiting", "Invalid confirmation candles")
+    history_complete = True
     times = pd.to_datetime(minutes["time"],utc=True)
     after = minutes.loc[(times>=start) & (times<=now.floor("min"))]
     breached = (price<=level or (after["low"]<=level).any()) if long else (price>=level or (after["high"]>=level).any())
@@ -105,8 +107,9 @@ def evaluate_indicator_entry(signal, minutes, price, now):
     from goxtrade.strategies.vwap_ema_indicators import indicator_frame
     from goxtrade.strategies.vwap_ema_cross import optional_filters
     from goxtrade.market.instruments import instrument
+    history_complete = False
     def result(state, reason):
-        return dict(state=state, reason=reason, price=price)
+        return dict(state=state, reason=reason, price=price, history_complete=history_complete)
     if signal.get("status") != "Active" or not window_open(signal, now):
         return result("Cancelled", "Indicator event expired or inactive")
     if signal.get("signal") not in ("LONG", "SHORT"):
@@ -130,6 +133,7 @@ def evaluate_indicator_entry(signal, minutes, price, now):
         last, prior = frame.iloc[-1], frame.iloc[-2]
         if pd.isna(last["gap"]) or last["warmup"] < config.warmup_bars:
             return result("Waiting", "Indicators are not initialized")
+        history_complete = True
         if config.entry_mode == "CONFIRMED":
             cross = prior["gap"] <= 0 < last["gap"] if long else prior["gap"] >= 0 > last["gap"]
             if last["time"] != pd.Timestamp(signal["setup_time"]) or not cross:

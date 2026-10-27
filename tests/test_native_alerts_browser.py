@@ -40,7 +40,8 @@ def run():
                 record["trades"] = [dict(alert_id=49, strategy="Executed-only strategy", symbol="MNQ", direction="LONG",
                                          quantity=1, exit_price=110, costs=1, net=19, closed_at="2026-10-27T02:00:00Z")]
                 record["entry_decisions"] = {
-                    "42": dict(detail=f"{profile}: overnight spread exceeds the saved limit", time="2026-10-27T02:00:00Z"),
+                    "42": dict(detail=f"{profile}: overnight spread exceeds the saved limit", time="2026-10-27T02:00:00Z",
+                               previous=[dict(id=99,detail=f"{profile}: 5m momentum does not support direction",time="2026-10-27T01:59:00Z")]),
                     "44": dict(detail="Outdated reason must not appear on a filled trade")}
             route.fulfill(json=data)
 
@@ -51,6 +52,7 @@ def run():
             notes = page.locator(".entry-block")
             expect(notes).to_have_count(2)
             expect(notes.filter(has_text=f"{profile}: overnight spread")).to_have_count(1)
+            expect(notes.filter(has_text=f"{profile}: 5m momentum does not support direction")).to_have_count(1)
             expect(notes.filter(has_text="No execution decision recorded")).to_have_count(1)
             expect(page.get_by_text("Outdated reason must not appear", exact=False)).to_have_count(0)
             assert notes.first.evaluate("el => getComputedStyle(el).color") == "rgb(239, 163, 163)"

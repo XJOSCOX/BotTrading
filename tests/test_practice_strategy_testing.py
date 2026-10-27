@@ -22,6 +22,26 @@ from tests import test_multi_symbol_entries as multi
 class PracticeSessionTests(unittest.TestCase):
     setUp=roundtrip_fixtures.RoundTripTests.setUp
 
+    def test_waiting_confirmation_records_actual_reason_and_verified_history(self):
+        now=self.now
+        session=dict(id='reason-fixture',account_id=41,strategies=['vwap_ema_cross'],policy=policy(symbols=('MNQ',)).to_dict())
+        settings=dict(enabled=True,after_id=0,start_balance=50000.,automation=session)
+        signal=dict(id=1,status='Active',strategy='VWAP EMA Cross',strategy_id='vwap_ema_cross',symbol='NQ=F',
+                    signal='LONG',entry=100.,stop=90.,target=120.,unique_setup_id='reason-fixture',detected_at=now.isoformat(),
+                    confirmed_at=now.isoformat(),entry_window_seconds=90,entry_mode='CONFIRMED',signal_minutes=3,
+                    config_snapshot=VwapEmaConfig().to_dict(),exit_mode='fixed')
+        confirmation=dict(state='Waiting',reason='Current strategy filters failed: volume',price=100.,history_complete=True)
+        with patch('goxtrade.execution.contracts.contract_for_symbol',return_value=CONTRACT),patch('goxtrade.execution.practice_history.snapshot',return_value=({},[])),patch('goxtrade.data.strategy_history.latest_trade',return_value=dict(event_time=now.isoformat())),patch('goxtrade.strategies.entry_confirmation.check',return_value=confirmation),patch('goxtrade.strategies.strategy_catalog.order_block',return_value=None):
+            self.assertFalse(testing.selection(settings,[signal],dict(balance=50000.),dict(loss=0,locked=False),[],[],[],now=now))
+        with closing(executor.db()) as conn:
+            record,snapshot=conn.execute("SELECT record,snapshot FROM manager_decisions WHERE scope='practice_automation' ORDER BY rowid DESC LIMIT 1").fetchone()
+        self.assertIn(confirmation['reason'],json.loads(record)['reasons'][0])
+        saved=json.loads(snapshot)['candidates'][0]
+        self.assertTrue(saved['history_complete'])
+        self.assertFalse(saved['confirmed'])
+        self.assertEqual(json.loads(saved['evidence_json'])['entry_confirmation']['reason'],confirmation['reason'])
+        self.network.assert_not_called()
+
     def test_database_busy_retries_without_arming_or_overriding_manual_pause(self):
         with patch.object(executor,"pause") as pause,patch.object(executor,"status"),patch.object(executor.bot_audit,"emit"):
             self.assertTrue(executor.recover_connection(sqlite3.OperationalError("database is locked")))

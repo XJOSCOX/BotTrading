@@ -111,9 +111,11 @@ def alert_entry_decisions(conn, tables, alert_ids, profile):
         marks = ",".join("?" for _ in batch)
         rows = conn.execute(
             f"SELECT * FROM bot_events WHERE id IN (SELECT MAX(id) FROM bot_events "
-            f"WHERE {predicate} AND kind='Entry blocked' AND alert_id IN ({marks}) GROUP BY alert_id)", batch)
+            f"WHERE {predicate} AND kind='Entry blocked' AND alert_id IN ({marks}) GROUP BY alert_id,detail) ORDER BY id DESC", batch)
         for row in rows:
-            decisions[row["alert_id"]] = dict(row)
+            latest=decisions.setdefault(row['alert_id'],dict(row))
+            if row['id'] != latest['id'] and len(latest.get('previous',[]))<3:
+                latest.setdefault('previous',[]).append(dict(row))
     return decisions
 
 

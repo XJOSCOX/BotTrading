@@ -18,6 +18,7 @@ from goxtrade.execution.refresh_contracts import refresh_active_contracts
 from goxtrade.strategies.overnight_policy import MICRO_SYMBOLS
 from goxtrade.data.symbol_store import load_symbols
 from goxtrade.diagnostics import feed_status
+from goxtrade.runtime.event_wakeup import MARKET_WAKE, EXECUTION_WAKE
 
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -31,12 +32,17 @@ def first_payload(args):
     return args[0], args[1]
 
 
+def market_committed():
+    MARKET_WAKE.notify()
+    EXECUTION_WAKE.notify()
+
+
 def run_connection(subscriptions) -> None:
     disconnected = Event()
     last_event = time.monotonic()
     started = time.monotonic()
     latest_market_time = None
-    writer = TickBuffer(disconnected)
+    writer = TickBuffer(disconnected, on_commit=market_committed)
     contract_to_symbol = {item["contract_id"]: item["symbol"] for item in subscriptions}
     token = login()
     hub_url = f"{market_hub_url()}?access_token={token}"
@@ -137,8 +143,8 @@ def main() -> None:
     # WAL lets chart/strategy readers coexist with the batched tick writer.
     with closing(connect()) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
-    Thread(target=run_monitor, name="strategy-monitor", daemon=True).start()
-    Thread(target=run_practice, name="practice-executor", daemon=True).start()
+    Thread(target=run_monitor, kwargs=dict(wakeup=MARKET_WAKE, executor_wakeup=EXECUTION_WAKE), name="strategy-monitor", daemon=True).start()
+    Thread(target=run_practice, kwargs=dict(wakeup=EXECUTION_WAKE), name="practice-executor", daemon=True).start()
     from goxtrade.execution.practice_history import run as run_history
     Thread(target=run_history, name="practice-history-readonly", daemon=True).start()
     feed_symbols = list(dict.fromkeys([*load_symbols(), *SYMBOLS, *MICRO_SYMBOLS]))

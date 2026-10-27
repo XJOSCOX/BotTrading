@@ -29,6 +29,7 @@ from goxtrade.execution import safeguards
 from goxtrade.runtime.build_identity import fingerprint
 
 WORKER_BUILD = fingerprint()
+SCHEDULING_MODE = "watchdog"
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -75,7 +76,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version=safeguards.PROTOCOL_VERSION, worker_build=WORKER_BUILD, account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version=safeguards.PROTOCOL_VERSION, worker_build=WORKER_BUILD, scheduler=SCHEDULING_MODE, account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)
@@ -558,6 +559,12 @@ def cycle(token):
             return
     if not settings.get("enabled"):
         status("New entries paused; existing positions still monitored")
+        seen={job['alert_id'] for job in jobs}
+        for signal in history.values():
+            if (signal.get('status')=='Active' and signal['id']>(settings.get('after_id') or 0)
+                    and signal['id'] not in seen and symbol_enabled(signal.get('symbol'),settings)):
+                bot_audit.emit(f"decision:{signal['id']}","Entry blocked",
+                               "New entries paused; existing positions still monitored",signal['id'])
         return
     if gate["locked"]:
         pause()
@@ -816,10 +823,14 @@ def recover_connection(error):
     return retryable
 
 
-def run_practice():
+def run_practice(wakeup=None):
+    global SCHEDULING_MODE
+    SCHEDULING_MODE = "event-driven-coalesced-v1" if wakeup is not None else "watchdog"
     token, authenticated = None, 0
     failures = 0
     while True:
+        observed = wakeup.version() if wakeup is not None else None
+        started = time.monotonic()
         settings, jobs = {}, []
         try:
             settings, _, jobs = snapshot()
@@ -834,4 +845,13 @@ def run_practice():
                 logging.warning("Execution recovery status unavailable; retrying reconciliation without broker submission")
             failures += 1
             token = None
-        Event().wait(min(30, 3 * 2 ** min(failures-1, 4)) if failures else 3 if settings.get("enabled") or settings.get("emergency_close") or any(j["state"] not in ("Closed", "Rejected") for j in jobs) else 15)
+        active = settings.get("enabled") or settings.get("emergency_close") or any(j["state"] not in ("Closed", "Rejected") for j in jobs)
+        if failures:
+            # Tick storms must never bypass API recovery backoff or manual pauses.
+            Event().wait(min(30, 3 * 2 ** min(failures-1, 4)))
+        elif wakeup is not None:
+            # Preserve headroom below the provider's shared REST budget. Every cycle
+            # still re-reads account/positions/orders and repeats the existing gates.
+            wakeup.wait(observed, 3 if active else 15, not_before=started+(2 if active else 15))
+        else:
+            Event().wait(3 if active else 15)

@@ -145,11 +145,13 @@ def selection(settings, history, account, gate, positions, orders, jobs, *, own_
             confirmed = alert.get("confirmed_at") or (stamp(alert["setup_time"])+timedelta(minutes=spec.signal_minutes)).isoformat()
             expiry = stamp(confirmed)+timedelta(seconds=alert.get("entry_window_seconds",600 if spec.runtime_adapter is None else spec.expiration_seconds))
             envelope={**alert,"unique_setup_id":alert.get("unique_setup_id") or f"alert:{alert['id']}",
-                      "exit_mode":alert.get("exit_mode","structure-v1")}
+                      "exit_mode":alert.get("exit_mode","structure-v1"),
+                      "entry_confirmation":dict(state=confirmation.get('state'),reason=confirmation.get('reason'),
+                                                history_complete=confirmation.get('history_complete',confirmation.get('state')=='Confirmed'))}
             candidate=adapt_alert(envelope,account_id=str(executor.ACCOUNT_ID),profile="practice",symbol=micro,contract_id=contract,
                 price=confirmation.get("price"),quote_at=quote["event_time"] if quote else None,
                 confirmed_at=confirmed,expires_at=expiry.isoformat(),confirmed=confirmation["state"]=="Confirmed",
-                history_complete=confirmation["state"]=="Confirmed",execution_eligible=not order_block(alert,"practice",now),
+                history_complete=confirmation.get('history_complete',confirmation["state"]=="Confirmed"),execution_eligible=not order_block(alert,"practice",now),
                 session=alert.get("session_id") or day)
             candidates.append(candidate); source[candidate.candidate_id]=alert["id"]
         except (ValueError,TypeError,KeyError) as error:

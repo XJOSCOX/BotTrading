@@ -123,7 +123,7 @@ def adapt_alert(alert, *, account_id, profile, symbol, contract_id, price, quote
     created, confirmation, expiry = (stamp(v).isoformat() for v in (created, confirmed_at, expires_at))
     mode = alert.get("entry_mode", "CONFIRMED")
     timeframe = alert.get("signal_minutes", spec.signal_minutes)
-    evidence = {key: alert[key] for key in ("reason", "confirmation_method", "box", "candle_time", "source_contract") if key in alert}
+    evidence = {key: alert[key] for key in ("reason", "confirmation_method", "entry_confirmation", "box", "candle_time", "source_contract") if key in alert}
     identity = dict(strategy=spec.id, setup=setup, account=account_id, profile=profile,
                     contract=contract_id, direction=alert.get("direction", alert.get("signal")))
     return TradeCandidate(digest(identity), spec.id, spec.name, name, contract_id, account_id, profile,

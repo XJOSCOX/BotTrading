@@ -2,7 +2,7 @@ import unittest
 import tempfile
 from pathlib import Path
 from threading import Event
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from datetime import datetime,timezone
 from contextlib import closing
 from goxtrade.data import live_store
@@ -10,6 +10,49 @@ from goxtrade.data.tick_buffer import TickBuffer, write_batch, event_age
 
 
 class TickBufferTests(unittest.TestCase):
+    def test_notification_occurs_only_after_data_is_committed(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(live_store,'DB_PATH',Path(folder)/'notify.db'):
+            observed=[]
+            def committed():
+                with closing(live_store.connect()) as conn:
+                    observed.append(conn.execute('SELECT COUNT(*) FROM live_ticks').fetchone()[0])
+            buffer=TickBuffer(Event(),on_commit=committed)
+            buffer.add('trade','MNQ=F','fixture',dict(price=100.,volume=1))
+            buffer.start();buffer.close()
+            self.assertEqual(observed,[1])
+
+    def test_persistence_failure_never_notifies_and_callback_failure_keeps_data(self):
+        notify=Mock()
+        buffer=TickBuffer(Event(),on_commit=notify)
+        buffer.add('trade','MNQ=F','fixture',dict(price=100.))
+        with patch('goxtrade.data.tick_buffer.write_batch',side_effect=RuntimeError('fixture disk failure')):
+            buffer.start();buffer.close()
+        notify.assert_not_called()
+        self.assertIsNotNone(buffer.gap_at)
+        with tempfile.TemporaryDirectory() as folder,patch.object(live_store,'DB_PATH',Path(folder)/'callback.db'):
+            disconnected=Event()
+            buffer=TickBuffer(disconnected,on_commit=Mock(side_effect=RuntimeError('fixture notification failure')))
+            buffer.add('trade','MNQ=F','fixture',dict(price=100.))
+            buffer.start();buffer.close()
+            with closing(live_store.connect()) as conn:
+                self.assertEqual(conn.execute('SELECT COUNT(*) FROM live_ticks').fetchone()[0],1)
+            self.assertFalse(disconnected.is_set())
+            self.assertIsNone(buffer.gap_at)
+    def test_ten_thousand_tick_burst_is_not_coalesced_or_reordered(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(live_store,'DB_PATH',Path(folder)/'burst.db'):
+            disconnected=Event()
+            buffer=TickBuffer(disconnected)
+            for sequence in range(10000):
+                self.assertTrue(buffer.add('trade','MNQ=F','fixture',dict(price=30000+sequence*.25,volume=sequence+1)))
+            buffer.start()
+            buffer.close()
+            with closing(live_store.connect()) as conn:
+                rows=conn.execute('SELECT price,volume FROM live_ticks ORDER BY id').fetchall()
+            self.assertEqual(len(rows),10000)
+            self.assertEqual([(r['price'],r['volume']) for r in rows],[(30000+n*.25,n+1) for n in range(10000)])
+            self.assertFalse(disconnected.is_set())
+            self.assertIsNone(buffer.gap_at)
+
     def test_batch_preserves_order_prices_volumes_and_event_times(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store,"DB_PATH",Path(folder)/"test.db"):
             write_batch([("trade","NQ=F","nq",dict(price=100.25,volume=3,timestamp="2026-09-17T12:00:00Z"),"2026-09-17T12:03:00Z"),

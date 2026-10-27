@@ -22,6 +22,12 @@ It does not enable copier accounts, broker partial exits or broker stop amendmen
 
 ## Supervision And Recovery
 
+The Practice feed/monitor/executor now use coalesced post-commit notifications;
+periodic watchdogs remain active when no events arrive. Broker reconciliation
+retains a two-second minimum cycle-start interval, and error backoff cannot be
+interrupted by market events. Manual pause, unknown outcomes and all preflight
+checks still win. See [Event-Driven Practice](EVENT_DRIVEN_PRACTICE.md).
+
 Windows process-inspection failures are unknown, not proof of a stopped worker.
 Passive status reads never delete PID registrations. Unknown state blocks new
 launch/stop actions. Lifecycle commands are serialized; the market worker also

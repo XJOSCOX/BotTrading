@@ -38,11 +38,12 @@ def write_batch(events):
 
 
 class TickBuffer:
-    def __init__(self, disconnected, capacity=20000):
+    def __init__(self, disconnected, capacity=20000, on_commit=None):
         self.queue = Queue(maxsize=capacity)
         self.stopping = Event()
         self.disconnected = disconnected
         self.gap_at = None
+        self.on_commit = on_commit
         self.worker = Thread(target=self.run,name="tick-writer",daemon=True)
 
     def start(self):
@@ -78,6 +79,12 @@ class TickBuffer:
                 logging.error("Tick batch persistence failed (%s); feed gap requires review",type(error).__name__)
                 self.disconnected.set()
                 return
+            if self.on_commit is not None:
+                try:
+                    self.on_commit()
+                except Exception:
+                    # Data is already durable; watchdogs can recover a missed wakeup.
+                    logging.warning("Tick commit wakeup failed; periodic evaluation remains active")
 
     def close(self):
         self.stopping.set()

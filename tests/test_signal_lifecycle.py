@@ -25,6 +25,16 @@ class SignalLifecycleTests(unittest.TestCase):
         _, result = advance_signal(state, changed, "b", [dict(id=3, price=94), dict(id=4, price=120)])
         self.assertIn("Stop reached", result["reason"])
 
+    def test_millisecond_stop_touch_and_rebound_preserves_first_crossing(self):
+        ticks=[dict(id=2,price=100,event_time='2026-10-27T04:30:00.001Z'),
+               dict(id=3,price=94,event_time='2026-10-27T04:30:00.002Z'),
+               dict(id=4,price=104,event_time='2026-10-27T04:30:00.003Z')]
+        state,result=advance_signal(self.state,self.signal,'a',ticks)
+        self.assertEqual(state['exit_price'],94)
+        self.assertEqual(state['exit_time'],ticks[1]['event_time'])
+        self.assertIsNone(state['active'])
+        self.assertIn('Stop reached',result['reason'])
+
     def test_short_exits(self):
         signal = dict(signal="SHORT", entry=100, stop=105, target=90)
         for price, reason in [(90, "Target reached"), (105, "Stop reached")]:

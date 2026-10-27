@@ -9,6 +9,19 @@ from tests.manager_fixtures import NOW, candidate, facts, policy
 
 
 class StrategyManagerTests(unittest.TestCase):
+    def test_confirmation_reasons_are_preserved_without_allowing_unconfirmed_entries(self):
+        for state,complete,reason,eligibility in (
+            ('Waiting',True,'5m candle momentum does not support direction','REJECTED'),
+            ('Waiting',False,'1m/5m history delayed or incomplete','DATA_UNAVAILABLE'),
+            ('Cancelled',True,'Setup invalidation breached before entry','REJECTED')):
+            with self.subTest(state=state,complete=complete):
+                evidence=json.dumps(dict(entry_confirmation=dict(state=state,reason=reason,history_complete=complete)))
+                row=candidate(confirmed=False,history_complete=complete,evidence_json=evidence)
+                decision=evaluate([row],facts(),policy(),NOW)[0]
+                self.assertEqual(decision.eligibility,eligibility)
+                self.assertIn(reason,decision.reasons[0])
+                self.assertFalse(decision.selected)
+
     def test_all_registered_adapters(self):
         for spec in SPECS:
             with self.subTest(spec=spec.id):

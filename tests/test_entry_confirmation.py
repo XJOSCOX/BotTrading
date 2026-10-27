@@ -45,6 +45,17 @@ class ConfirmationTests(unittest.TestCase):
         self.bars = self.bars.drop(index=12)
         self.assertEqual(self.evaluate()['state'],'Waiting')
 
+    def test_complete_history_is_independent_of_price_action_confirmation(self):
+        self.bars.loc[14,'close'] = 99
+        waiting=self.evaluate()
+        self.assertEqual(waiting['state'],'Waiting')
+        self.assertIn('5m',waiting['reason'])
+        self.assertTrue(waiting['history_complete'])
+        self.bars=self.bars.drop(index=12)
+        incomplete=self.evaluate()
+        self.assertEqual(incomplete['state'],'Waiting')
+        self.assertFalse(incomplete['history_complete'])
+
     def test_cancel_expired_breached_and_chased(self):
         self.assertEqual(self.evaluate(95)['state'],'Cancelled')
         self.assertEqual(self.evaluate(105)['state'],'Waiting')
@@ -104,6 +115,19 @@ class ConfirmationTests(unittest.TestCase):
 class IntegrationTests(unittest.TestCase):
     setUp = multi.MultiSymbolTests.setUp
     cycle_mocks = multi.MultiSymbolTests.cycle_mocks
+
+    def test_pause_reason_is_recorded_on_untraded_alert_without_sending_order(self):
+        from goxtrade.execution import practice_executor as e
+        signal=dict(id=3,status='Active',symbol='NQ=F',strategy='CRT',signal='LONG',entry=100,stop=95,entry_time=datetime.now(timezone.utc).isoformat())
+        self.cycle_mocks([],[signal])
+        e.pause()
+        e.update_settings(after_id=None)
+        with patch.object(e,'post') as broker:
+            e.cycle('fixture')
+        broker.assert_not_called()
+        with closing(e.db()) as conn:
+            row=conn.execute("SELECT detail FROM bot_events WHERE alert_id=3 AND kind='Entry blocked' ORDER BY id DESC LIMIT 1").fetchone()
+        self.assertIn('New entries paused',row[0])
 
     def test_wait_then_confirm_and_final_recheck(self):
         from goxtrade.execution import practice_executor as e
