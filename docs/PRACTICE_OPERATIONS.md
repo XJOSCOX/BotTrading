@@ -66,6 +66,17 @@ provider outage, guarantee a fill price, reset a loss lock or authorize an order
 Regression tests simulate outages, uncertain outcomes and restarts without causing
 real broker failures. Do not deliberately crash exit management with an open trade.
 
+## Unsent Practice Entry Retries
+
+A rejected preflight may be reconsidered only when its durable job record proves
+`submission_status=NOT_SENT`, belongs to Practice and has no broker order or fill.
+Every attempt reruns the normal signal, freshness, account, schedule and risk checks.
+The same alert/event is claimed atomically; retry attempts remain in job history.
+Before calling the broker, the worker durably switches to `SENDING`. Submitted,
+broker-rejected, uncertain, filled and closed jobs cannot automatically retry.
+Older records without this proof are not replayed, and expired signals stay expired.
+Leader behavior, saved settings and Safeguards are unchanged by this mechanism.
+
 ## Verified Rollout
 
 The latest acceptance record is [Practice Production Acceptance](PRACTICE_PRODUCTION_ACCEPTANCE.md).

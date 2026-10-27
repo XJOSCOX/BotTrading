@@ -128,7 +128,7 @@ def selection(settings, history, account, gate, positions, orders, jobs, *, own_
         consecutive_losses=losses,
         last_closed_at=max((j["closed_confirmed_at"] for j in jobs if j.get("state")=="Closed" and j.get("closed_confirmed_at")),default=None),
         contracts=tuple(contracts.items()), practice_session_authorized=True)
-    consumed={j["alert_id"] for j in jobs if j["alert_id"] != own_alert}
+    consumed={j["alert_id"] for j in jobs if j["alert_id"] != own_alert and not executor.retryable_preflight(j)}
     candidates, source = [], {}
     for alert in history:
         if (alert.get("status") != "Active" or alert["id"] <= settings["after_id"] or alert["id"] in consumed

@@ -104,6 +104,16 @@ def save_job(job):
         conn.commit()
 
 
+def retryable_preflight(job):
+    """Only durable Practice aborts before the transport boundary may retry."""
+    return (PROFILE == "practice" and job.get("account_profile") == "practice"
+            and job.get("account_id") == ACCOUNT_ID and job.get("state") == "Rejected"
+            and job.get("submission_status") == "NOT_SENT"
+            and job.get("error_code") in (None, 0)
+            and all(job.get(key) is None for key in ("order_id", "fill_price", "filled_quantity",
+                                                    "first_fill_observed_at", "closed_confirmed_at")))
+
+
 def claim(job):
     assert_current()
     if execution_block(job, PROFILE):
@@ -115,6 +125,16 @@ def claim(job):
         session_id=session_settings(current_settings).get("id")
         if session_id or job_session(job):
             if not current_settings.get("enabled") or session_id != job_session(job) or PROFILE != "practice":
+                return False
+        previous = conn.execute(f"SELECT record FROM {PROFILE}_jobs WHERE alert_id=?", (job["alert_id"],)).fetchone()
+        retrying = previous is not None and retryable_preflight(json.loads(previous[0]))
+        if previous:
+            old = json.loads(previous[0])
+            identity_fields = ("symbol", "contract_id", "side", "strategy", "strategy_id", "unique_setup_id",
+                               "config_fingerprint", "crossover_key", "consumption_key", "automation_session",
+                               "entry_mode", "signal_minutes", "source_contract", "candle_time", "session_id")
+            if (not retrying or not current_settings.get("enabled") or job.get("state") != "Intent"
+                    or any(old.get(key) != job.get(key) for key in identity_fields)):
                 return False
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
             signal = conn.execute("SELECT record FROM bot_alert_history WHERE id=?",(job["alert_id"],)).fetchone()
@@ -128,7 +148,8 @@ def claim(job):
         event = job.get("consumption_key") or job.get("crossover_key") or job.get("unique_setup_id")
         if event:
             conn.execute(f"CREATE TABLE IF NOT EXISTS {PROFILE}_entry_events (setup_id TEXT PRIMARY KEY,alert_id INTEGER NOT NULL)")
-            if conn.execute(f"SELECT 1 FROM {PROFILE}_entry_events WHERE setup_id=?", (event,)).fetchone():
+            consumed = conn.execute(f"SELECT alert_id FROM {PROFILE}_entry_events WHERE setup_id=?", (event,)).fetchone()
+            if consumed and not (retrying and consumed[0] == job["alert_id"]):
                 return False
         active = [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {PROFILE}_jobs")]
         if job.get("strategy_id")=="previous_day_box":
@@ -143,6 +164,8 @@ def claim(job):
                 return False
         if event:
             for old in active:
+                if retrying and old["alert_id"] == job["alert_id"]:
+                    continue
                 if old.get("unique_setup_id") == job.get("unique_setup_id") or old.get("crossover_key") == event:
                     return False
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
@@ -162,10 +185,20 @@ def claim(job):
                    or other.get("side") != job.get("side") for other in active):
                 return False
         job["account_id"] = ACCOUNT_ID
-        inserted = conn.execute(f"INSERT OR IGNORE INTO {PROFILE}_jobs VALUES (?,?)", (job["alert_id"], json.dumps(job))).rowcount
+        if PROFILE == "practice" and job.get("state") == "Intent":
+            job["submission_status"] = "NOT_SENT"
+            job["attempt"] = json.loads(previous[0]).get("attempt", 1)+1 if retrying else 1
+        if retrying:
+            inserted = conn.execute(f"UPDATE {PROFILE}_jobs SET record=? WHERE alert_id=? AND record=?",
+                                    (json.dumps(job), job["alert_id"], previous[0])).rowcount
+            if inserted:
+                conn.execute(f"INSERT INTO {PROFILE}_job_events (alert_id,recorded_at,record) VALUES (?,?,?)",
+                             (job["alert_id"], datetime.now(timezone.utc).isoformat(), json.dumps(job)))
+        else:
+            inserted = conn.execute(f"INSERT OR IGNORE INTO {PROFILE}_jobs VALUES (?,?)", (job["alert_id"], json.dumps(job))).rowcount
         if inserted:
             if event:
-                conn.execute(f"INSERT INTO {PROFILE}_entry_events VALUES (?,?)", (event, job["alert_id"]))
+                conn.execute(f"INSERT OR IGNORE INTO {PROFILE}_entry_events VALUES (?,?)", (event, job["alert_id"]))
             bot_audit.emit(f"job:{job['alert_id']}:intent", "Entry intent", f"{job.get('quantity')} {job.get('symbol')} / signal {job.get('signal_entry')}", job["alert_id"], conn=conn)
         conn.commit()
         return bool(inserted)
@@ -576,12 +609,12 @@ def cycle(token):
     waiting = entry_wait(positions, orders, jobs, cooldown_seconds=overnight_policy.cooldown_seconds(bot_controls.read()["cooldown_minutes"]*60))
     if waiting:
         status(waiting)
-        seen = {j["alert_id"] for j in jobs}
+        seen = {j["alert_id"] for j in jobs if not retryable_preflight(j)}
         for signal in history.values():
             if signal["status"] == "Active" and signal["id"] > settings["after_id"] and signal["id"] not in seen and symbol_enabled(signal["symbol"], settings):
                 bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", waiting, signal["id"])
         return
-    seen = {j["alert_id"] for j in jobs}
+    seen = {j["alert_id"] for j in jobs if not retryable_preflight(j)}
     results = read_status()
     manager_selected = None
     if session_settings(settings):
@@ -788,6 +821,10 @@ def cycle(token):
             job["initial_risk_usd"] = abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"]
             bot_audit.emit(f"confirmation:{signal['id']}", "Entry confirmed", confirmation["reason"], signal["id"])
             assert_current()
+            # Persist before HTTP: a crash or timeout after this point is never retried.
+            if PROFILE == "practice":
+                job["submission_status"] = "SENDING"
+                save_job(job)
             response = post("/api/Order/place", payload, token=token)
             job.update(state="Submitted" if response.get("success") is True else "Rejected",
                        order_id=response.get("orderId"), error_code=response.get("errorCode"),
