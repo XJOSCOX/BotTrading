@@ -31,7 +31,9 @@ def handle_command(request):
         status = json.loads(row[0]) if row else {}
         if status.get("version") != "accounts-v1" or (datetime.now(timezone.utc)-datetime.fromisoformat(status["updated_at"])).total_seconds()>45:
             raise ValueError("Updated Practice/feed worker must be online before leader activation")
-        executor.arm(500,500,True,request["quantities"],acknowledge_loss=request.get("acknowledge_loss") is True,enable_mym=executor.snapshot()[0].get("enable_mym") is True)
+        from goxtrade.execution.safeguards import active
+        limits=active(TARGET['gate_id'])
+        executor.arm(limits.max_trade_risk,limits.loss_lock,True,request["quantities"],acknowledge_loss=request.get("acknowledge_loss") is True,enable_mym=executor.snapshot()[0].get("enable_mym") is True)
     elif action == "pause":
         executor.pause()
     elif action == "emergency":

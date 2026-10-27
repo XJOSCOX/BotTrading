@@ -85,9 +85,9 @@ def authorize_risk(candidate, state, policy, now):
         return dict(allowed=False, reason=reason, quantity=0, planned_risk=None, available_budget=max(0., available))
     if not all(finite(v) for v in (state.realized, state.unrealized)):
         return blocked("Portfolio P&L is unavailable")
-    if state.loss_locked or state.realized <= -min(500., policy.max_daily_loss):
+    if state.loss_locked or state.realized <= -policy.max_daily_loss:
         return blocked("Account realized-loss lock")
-    if state.realized+min(0., state.unrealized) <= -min(500., policy.max_daily_loss_with_open):
+    if state.realized+min(0., state.unrealized) <= -policy.max_daily_loss_with_open:
         return blocked("Daily loss including unrealized exposure")
     if state.daily_trades+len(state.reservations) >= policy.max_daily_trades or state.consecutive_losses >= policy.max_consecutive_losses:
         return blocked("Daily trade or consecutive-loss limit")

@@ -4,6 +4,7 @@ import math
 from contextlib import closing
 from datetime import datetime, timezone
 from goxtrade.data.live_store import connect
+from goxtrade.execution.safeguards import active,initialize
 
 
 def check(balance, fallback=None, acknowledge=False, account_id=1):
@@ -13,6 +14,7 @@ def check(balance, fallback=None, acknowledge=False, account_id=1):
     with closing(connect()) as conn:
         conn.execute("CREATE TABLE IF NOT EXISTS practice_loss_gate (id INTEGER PRIMARY KEY, record TEXT NOT NULL)")
         conn.execute("CREATE TABLE IF NOT EXISTS practice_loss_approvals (time TEXT, previous TEXT, balance REAL)")
+        initialize(conn)
         conn.commit()
         conn.execute("BEGIN IMMEDIATE")
         row = conn.execute("SELECT record FROM practice_loss_gate WHERE id=?",(account_id,)).fetchone()
@@ -20,7 +22,8 @@ def check(balance, fallback=None, acknowledge=False, account_id=1):
         state["balance"] = balance
         state["account_id"] = account_id
         state["loss"] = max(0, state["baseline"] - balance)
-        state["locked"] = state["locked"] or state["loss"] >= 500
+        state['limit']=active(account_id,conn).loss_lock
+        state["locked"] = state["locked"] or state["loss"] >= state['limit']
         if acknowledge and state["locked"]:
             conn.execute("INSERT INTO practice_loss_approvals VALUES (?,?,?)", (datetime.now(timezone.utc).isoformat(), json.dumps(state), balance))
             state.update(baseline=balance, loss=0, locked=False)

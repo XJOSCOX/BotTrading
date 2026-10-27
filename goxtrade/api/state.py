@@ -15,6 +15,7 @@ from goxtrade.market.trading_schedule import execution_schedule
 from goxtrade.strategies.strategy_catalog import SPECS
 from goxtrade.strategies import strategy_settings
 from goxtrade.bot import bot_controls
+from goxtrade.execution import safeguards
 
 SYMBOLS = ("NQ=F", "ES=F", "YM=F", "MNQ=F", "MES=F", "MYM=F")
 
@@ -61,7 +62,7 @@ def profile_state(conn, tables, profile):
                "symbol": job.get("symbol"), "strategy": job.get("strategy", "Unknown"), "quantity": job.get("quantity"),
                "direction": "LONG" if job.get("side") == 0 else "SHORT"}
               for job in jobs if job["alert_id"] in matched]
-    return dict(settings=settings, runtime=runtime, gate=gate, broker=history,
+    return dict(settings=settings, runtime=runtime, gate=gate, broker=history,safeguards=safeguards.read(target['gate_id']),
                 jobs=sorted(jobs, key=lambda row: row.get("sent_at", 0), reverse=True)[:300],
                 fills=sorted(fills, key=lambda row: row.get("creationTimestamp", ""), reverse=True)[:150],
                 trades=trades, totals=summary(matched), target=target)
@@ -130,6 +131,7 @@ def configuration():
     return clean(dict(strategies=[asdict(spec) for spec in SPECS],
                       policies={profile: bot_controls.read(profile) for profile in ("practice", "leader")},
                       execution_settings=execution_settings,
+                      safeguards={p:safeguards.read(identity.TARGETS[p]['gate_id']) for p in ('practice','leader')},
                       stop_minutes=strategy_settings.read_stop_minutes(), orb_minutes=strategy_settings.read_orb_minutes(),
                       vwap=strategy_settings.read_vwap_ema_config().to_dict(), targets=identity.current_targets(),
                       previous_day_box=strategy_settings.read_previous_day_box_config().to_dict(),

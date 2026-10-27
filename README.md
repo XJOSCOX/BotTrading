@@ -201,7 +201,7 @@ The interface distinguishes active size limits from pending saved settings.
 Stopping entries
 leaves open-position management active; no per-order confirmation is required
 once the operator starts the session. Leader is never activated by this control.
-The existing $500 account loss lock is unchanged. See
+The account loss baseline and active limits are not reset by startup. See
 [Practice Strategy Testing](docs/PRACTICE_STRATEGY_TESTING.md) for actual versus
 replay evidence, configuration, controls, limits and current results.
 
@@ -215,6 +215,33 @@ The final rounded order is checked against planned-risk and remaining account
 budgets before transmission. Broker gaps and slippage can still exceed estimates.
 The reviewed exchange calendar must be maintained; expiry deliberately blocks
 entries. No automatic calendar approval or loss-baseline reset is performed.
+
+## Safeguards
+
+Use **Settings > Safeguards** for each account's cumulative loss lock, maximum
+contracts per symbol, planned trade-risk ceiling and total open stop-risk budget.
+The initial limits remain USD 500 / four supported micro contracts / USD 75 per
+trade / USD 150 open risk. Values are stored locally and restored on restart.
+
+**Save safeguards** stores pending settings only. **Review and apply** requires
+paused entries, an up-to-date worker, exact-account confirmation and verified
+broker-flat state. Higher loss limits require this same explicit approval; no
+new values are applied during deployment. Applying never starts trading, resets
+the account's loss baseline or unlocks an already latched loss lock. Lowering a
+limit below current losses latches it immediately. Any loss-baseline reset remains
+a separate explicit authorization in Execution.
+
+Practice and Leader retain separate settings and audit records. Active limits
+are checked at the order-send boundary, not only rendered in the interface.
+Existing strategy sessions may retain stricter frozen limits until Pause and a
+new explicitly authorized Start. Broker/platform restrictions and the supported
+one-to-four contract capability are not bypassed. Loss and stop-risk estimates
+cannot guarantee fill prices or maximum realized losses.
+
+Safeguards validation: 633 regression tests passed, plus production build and
+desktop/mobile browser checks for saved/active separation, reload persistence,
+explicit higher-limit approval and account isolation. No real safeguard values
+were changed or accounts armed during deployment.
 
 ## Strategy Manager
 

@@ -61,7 +61,7 @@ class StrategyManagerUiTests(unittest.TestCase):
             self.assertNotIn("practice_loss_gate", tables)
 
     def test_invalid_settings_and_csrf_fail_closed(self):
-        for values in (dict(unknown=True), dict(max_daily_loss=501), dict(paper_enabled=True), dict(commission_per_side=0)):
+        for values in (dict(unknown=True), dict(max_daily_loss=1000001), dict(paper_enabled=True), dict(commission_per_side=0)):
             self.assertEqual(self.post("/api/manager/policy", values).status_code, 400)
         self.assertEqual(self.client.post("/api/manager/policy", json={}).status_code, 403)
         self.assertEqual(self.post("/api/manager/paper/start", {}).status_code, 400)

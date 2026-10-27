@@ -46,6 +46,8 @@ def start(strategies, confirmed_account, confirmed, *, confirmed_quantities, ack
     if blocked:
         raise ValueError(blocked)
     base_policy = manager_service.policy()
+    from goxtrade.execution.safeguards import active
+    limits=active(executor.TARGET['gate_id'])
     commission=base_policy.commission_per_side
     if commission is None:
         commission=session_settings(settings).get("policy",{}).get("commission_per_side")
@@ -59,10 +61,13 @@ def start(strategies, confirmed_account, confirmed, *, confirmed_quantities, ack
         raise ValueError("Save valid micro quantities before starting automation")
     policy = replace(base_policy, symbols=symbols,
         monitoring=tuple(s.id for s in specs), participating=tuple(s.id for s in specs), priority=tuple(s.id for s in specs),
-        requested_quantity=min(base_policy.max_contracts,max(quantities[s] for s in symbols)),
+        max_contracts=limits.max_contracts,
+        requested_quantity=min(limits.max_contracts,max(quantities[s] for s in symbols)),
         symbol_quantities=tuple((s,quantities[s]) for s in symbols),
         cooldown_minutes=max(base_policy.cooldown_minutes,controls["cooldown_minutes"]),
-        max_trade_risk=min(base_policy.max_trade_risk, settings["max_trade_loss"]),
+        max_trade_risk=limits.max_trade_risk,
+        max_open_risk=limits.max_open_risk,max_group_risk=limits.max_open_risk,
+        max_daily_loss=limits.loss_lock,max_daily_loss_with_open=limits.loss_lock,
         commission_per_side=commission)
     policy.validate()
     if any(s.id == "vwap_ema_cross" for s in specs):
@@ -75,7 +80,7 @@ def start(strategies, confirmed_account, confirmed, *, confirmed_quantities, ack
     session = dict(id=uuid.uuid4().hex, account_id=executor.ACCOUNT_ID, strategies=[s.id for s in specs],
                    instruments=list(symbols),quantities={s:quantities[s] for s in symbols},
                    started_at=datetime.now(timezone.utc).isoformat(), policy=policy.to_dict())
-    executor.arm(settings["max_trade_loss"], settings["max_run_loss"], True,
+    executor.arm(limits.max_trade_risk, limits.loss_lock, True,
                  quantities=quantities, enable_mym=settings.get("enable_mym",False), automation=session,
                  acknowledge_loss=acknowledge_loss,expected_settings=settings)
     return session

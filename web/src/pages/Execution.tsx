@@ -28,6 +28,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
       (name: string) => config.strategies.find((s: Json) => s.name === name)?.id,
     ).filter(Boolean),
     activeSizes = Object.fromEntries(automation?.policy?.symbol_quantities || []);
+  const lossLimit=p.safeguards?.active?.loss_lock ?? config.safeguards?.[profile]?.active?.loss_lock;
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const result = await act(`/execution/${profile}/${dialog}`, {
@@ -85,7 +86,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             ))}
           </div>
           <Metric
-            label="Realized account loss / $500 lock"
+            label={`Realized account loss / ${lossLimit!=null?money(lossLimit):"configured"} lock`}
             value={p.gate?.loss != null ? money(p.gate.loss) : "Not verified"}
             tone={p.gate?.locked ? "negative" : ""}
           />
@@ -306,7 +307,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             />
             {p.gate?.locked && (
               <Toggle
-                label="I acknowledge the $500 loss and authorize resetting this account's baseline."
+                label={`I acknowledge the ${lossLimit!=null?money(lossLimit):"configured"} loss lock and authorize resetting this account's baseline.`}
                 value={ack}
                 onChange={setAck}
               />

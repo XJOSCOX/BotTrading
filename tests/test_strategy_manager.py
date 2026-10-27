@@ -51,7 +51,7 @@ class StrategyManagerTests(unittest.TestCase):
 
     def test_config_schema_and_credentials(self):
         from goxtrade.execution.execution_policy import ExecutionPolicy
-        for values in (dict(unknown=True), dict(max_daily_loss=501), dict(max_contracts=5), dict(paper_enabled="yes"),
+        for values in (dict(unknown=True), dict(max_daily_loss=1000001), dict(max_contracts=5), dict(paper_enabled="yes"),
                        dict(commission_per_side=0), dict(priority=["crt", "crt"]), dict(minimum_rr=float("nan"))):
             with self.assertRaises((ValueError, TypeError)):
                 ExecutionPolicy.from_dict(values)

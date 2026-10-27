@@ -225,7 +225,7 @@ class NativeApiTests(unittest.TestCase):
     def test_explicit_authorization_delegates_existing_safety_once_no_retry(self):
         target = api_module.identity.TARGETS["practice"]
         settings = dict(quantities=dict(MNQ=3,MES=2,MYM=1),enable_mym=False)
-        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True)
+        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True,safeguards_version='account-limits-v1')
         body = dict(name=target["name"],safeguards=True,quantities=settings["quantities"],strategies=["crt"])
         with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
                 patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Mocked broker unavailable")) as start:
@@ -239,6 +239,26 @@ class NativeApiTests(unittest.TestCase):
             for action in ("arm","strategy-test"):
                 self.assertEqual(self.post('/api/execution/practice/'+action,body).status_code,400)
             arm.assert_not_called()
+
+    def test_safeguard_save_is_persistent_and_does_not_apply_or_arm(self):
+        original=self.client.get('/api/safeguards/practice').json()
+        body=dict(revision=original['revision'],loss_lock=1000.,max_contracts=2,max_trade_risk=100.,max_open_risk=200.)
+        with patch.object(projectx_client,'post',side_effect=AssertionError('No broker mutation or reads needed for Save')),patch.object(practice_executor,'arm') as arm:
+            response=self.post('/api/safeguards/practice',body)
+            self.assertEqual(response.status_code,200,response.text)
+            record=self.client.get('/api/safeguards/practice').json()
+            self.assertEqual(record['active'],original['active'])
+            self.assertEqual(record['saved']['loss_lock'],1000)
+            self.assertEqual(self.post('/api/safeguards/practice',body).status_code,400)
+            self.assertEqual(self.post('/api/safeguards/practice/apply',dict(name='WRONG',revision=record['revision'],confirmed=True)).status_code,400)
+            arm.assert_not_called()
+
+    def test_safeguard_apply_requires_explicit_confirmation(self):
+        with patch('goxtrade.execution.safeguards.apply',return_value=dict(saved={},active={},revision=1)) as apply:
+            self.assertEqual(self.post('/api/safeguards/practice/apply',dict(name='fixture',revision=0,confirmed=False)).status_code,400)
+            apply.assert_not_called()
+            self.assertEqual(self.post('/api/safeguards/practice/apply',dict(name='fixture',revision=0,confirmed=True)).status_code,200)
+            apply.assert_called_once_with('practice','fixture',0)
 
     def test_startup_and_websocket_only_stream_local_records(self):
         with patch.object(projectx_client,"post",side_effect=AssertionError("No broker calls")) as broker:

@@ -148,7 +148,7 @@ export function StrategyManager({ config, profile, act, busy }: PageProps) {
       {error && <Notice danger>{error}</Notice>}
       <Notice>
         Broker cutover is disabled. Research settings do not change account
-        execution permissions, sizing or the $500 loss lock.
+        execution permissions, sizing or account loss safeguards.
       </Notice>
       <Tabs
         values={[

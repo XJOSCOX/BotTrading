@@ -54,8 +54,8 @@ class ExecutionPolicy:
         for name in ("max_trade_risk", "max_open_risk", "max_daily_loss", "max_daily_loss_with_open", "max_group_risk", "max_group_gross", "max_group_net"):
             if not finite(getattr(self, name)) or getattr(self, name) <= 0:
                 raise ValueError(f"{name} must be finite and positive")
-        if self.max_daily_loss > 500 or self.max_daily_loss_with_open > 500:
-            raise ValueError("Research loss limits cannot exceed the existing $500 protection")
+        if self.max_daily_loss > 1000000 or self.max_daily_loss_with_open > 1000000:
+            raise ValueError("Loss limits exceed the supported validation range")
         for name in ("max_positions", "max_per_symbol", "max_contracts", "requested_quantity", "max_group_positions", "max_daily_trades", "max_consecutive_losses"):
             value = getattr(self, name)
             if type(value) is not int or not 1 <= value <= 100:

@@ -23,7 +23,7 @@ def fixture():
 def run():
     base=os.environ.get("GOX_NATIVE_PREVIEW_URL","http://127.0.0.1:8504")
     output=Path("data/verification");output.mkdir(parents=True,exist_ok=True)
-    pages=[("Dashboard","dashboard"),("Charts","charts"),("Strategies","strategies"),("Control Center","controls"),("Execution","execution"),("Research","research"),("Accounts","accounts"),("Connection","connection")]
+    pages=[("Dashboard","dashboard"),("Charts","charts"),("Strategies","strategies"),("Control Center","controls"),("Execution","execution"),("Safeguards","safeguards"),("Research","research"),("Accounts","accounts"),("Connection","connection")]
     with sync_playwright() as p:
         browser=p.chromium.launch(channel="msedge",headless=True)
         for width,height,device in ((2560,1440,"wide"),(1440,1000,"desktop"),(1280,800,"laptop"),(834,1112,"tablet"),(390,844,"mobile"),(320,740,"small-mobile")):
@@ -75,7 +75,7 @@ def run():
                 if name=="Control Center":
                     field=page.get_by_label("Re-enter after a confirmed close (minutes)")
                     field.fill("17");page.wait_for_timeout(3300);assert field.input_value()=="17"
-                if name in ("Dashboard","Charts","Control Center","Accounts","Execution"):
+                if name in ("Dashboard","Charts","Control Center","Accounts","Execution","Safeguards"):
                     page.screenshot(path=str(output/f"native-{device}-{key}.png"),full_page=True)
             assert len(documents)==1,documents
             assert len(frames)>2,"WebSocket updates were not received"

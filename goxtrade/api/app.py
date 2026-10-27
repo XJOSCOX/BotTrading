@@ -13,7 +13,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, 
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, StrictInt, StrictFloat
 
 from goxtrade.api import state
 from goxtrade.config import execution_identity as identity
@@ -64,6 +64,20 @@ class Authorization(Body):
 
 class ClearAlerts(Body):
     ids: list[StrictInt] = Field(max_length=200)
+
+
+class SafeguardSave(Body):
+    revision: Annotated[StrictInt,Field(ge=0)]
+    loss_lock: Annotated[StrictFloat,Field(gt=0,le=1000000)]
+    max_contracts: Count
+    max_trade_risk: Annotated[StrictFloat,Field(gt=0,le=1000000)]
+    max_open_risk: Annotated[StrictFloat,Field(gt=0,le=1000000)]
+
+
+class SafeguardApply(Body):
+    name: str
+    revision: Annotated[StrictInt,Field(ge=0)]
+    confirmed: StrictBool
 
 
 class Instrument(Body):
@@ -247,6 +261,30 @@ def create_app():
         strategy_settings.save_stop_minutes(body.stop_minutes)
         strategy_settings.save_orb_minutes(body.orb_minutes)
         return dict(message="Intervals saved for new setups. Open positions are unchanged.")
+
+    @app.get('/api/safeguards/{profile}',dependencies=[Depends(session)])
+    def safeguards_view(profile: Profile):
+        from goxtrade.execution.safeguards import read
+        return read(identity.current_targets()[profile]['gate_id'])
+
+    @app.post('/api/safeguards/{profile}',dependencies=[Depends(mutation)])
+    async def safeguards_save(profile: Profile,body: SafeguardSave):
+        from goxtrade.execution.safeguards import save
+        async with app.state.action_lock:
+            identity.assert_current(profile)
+            record=await asyncio.to_thread(save,identity.TARGETS[profile]['gate_id'],body.model_dump(exclude={'revision'}),body.revision)
+        state.CACHE.invalidate()
+        return dict(message='Safeguards saved. Active limits and trading authorization are unchanged.',**record)
+
+    @app.post('/api/safeguards/{profile}/apply',dependencies=[Depends(mutation)])
+    async def safeguards_apply(profile: Profile,body: SafeguardApply):
+        from goxtrade.execution.safeguards import apply
+        if body.confirmed is not True:
+            raise ValueError('Confirm the reviewed account safeguard values')
+        async with app.state.action_lock:
+            record=await asyncio.to_thread(apply,profile,body.name,body.revision)
+        state.CACHE.invalidate()
+        return dict(message='Safeguards applied. Loss baseline, latched locks and Run/Pause state are unchanged.',**record)
 
     @app.post("/api/vwap", dependencies=[Depends(mutation)])
     def vwap(values: dict):
@@ -617,6 +655,8 @@ def execute(profile, action, body):
             elapsed = float("inf")
         if not 0 <= elapsed < 45 or runtime.get("account_id") != target["id"]:
             raise ValueError("A fresh worker for this exact account must be online before authorization")
+        if runtime.get('safeguards_version')!='account-limits-v1':
+            raise ValueError('Restart the account worker to load configurable safeguard enforcement before authorization')
         if action == "start" and runtime.get("practice_automation") is not True:
             raise ValueError("Restart the paused Practice worker to load production automation before starting")
     if profile == "leader":

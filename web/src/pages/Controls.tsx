@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Save } from "lucide-react";
-import { type Json } from "../api";
+import { money,type Json } from "../api";
 import { Badge, Field, Metric, Notice, Table, Toggle } from "../components";
 import { type PageProps } from "../pageTypes";
 import { Tabs } from "./Tabs";
@@ -197,8 +197,9 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
           </form>
           <aside className="policy-aside">
             <h2>Execution safeguards</h2>
-            <Metric label="Account loss lock" value="$500" />
-            <Metric label="Maximum per symbol" value="4 micro contracts" />
+            <Metric label="Account loss lock" value={config.safeguards?.[profile]?.active?money(config.safeguards[profile].active.loss_lock):"Not verified"} />
+            <Metric label="Maximum per symbol" value={config.safeguards?.[profile]?.active?`${config.safeguards[profile].active.max_contracts} micro contracts`:"Not verified"} />
+            <a href="#safeguards">Manage safeguards</a>
             <div className="detail-row">
               <span>Additional symbols</span>
               <b>1 contract</b>

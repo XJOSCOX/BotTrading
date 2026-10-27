@@ -38,8 +38,10 @@ import { ValidationLab } from "./pages/ValidationLab";
 import { MarketReplay } from "./pages/MarketReplay";
 import { Diagnostics } from "./pages/Diagnostics";
 import { SystemControls } from "./SystemControls";
+import { Safeguards } from "./pages/Safeguards";
 
 const navigation = [
+  {name:"Safeguards",id:"safeguards",icon:ShieldCheck,group:"Settings",detail:"Account-specific loss locks and entry-risk limits",component:Safeguards},
   {
     name: "Market Replay",
     id: "market-replay",

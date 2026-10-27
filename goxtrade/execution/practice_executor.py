@@ -25,6 +25,7 @@ from goxtrade.bot import bot_health
 from goxtrade.config.execution_identity import PROFILE, TARGET, assert_other_idle, assert_current
 from goxtrade.strategies.strategy_catalog import order_block as execution_block, crossover_key
 from goxtrade.execution.practice_automation import session_settings, job_session
+from goxtrade.execution import safeguards
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -36,6 +37,7 @@ COOLDOWN_SECONDS = 300
 
 def db():
     conn = connect()
+    safeguards.initialize(conn)
     conn.execute(f"CREATE TABLE IF NOT EXISTS {PROFILE}_control (id INTEGER PRIMARY KEY, settings TEXT, status TEXT)")
     conn.execute(f"INSERT OR IGNORE INTO {PROFILE}_control VALUES (1,'{{}}','{{}}')")
     conn.execute(f"CREATE TABLE IF NOT EXISTS {PROFILE}_jobs (alert_id INTEGER PRIMARY KEY, record TEXT NOT NULL)")
@@ -70,7 +72,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version="account-limits-v1", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)
@@ -217,7 +219,7 @@ def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_lo
     account = verify_account(token)
     gate = practice_safety.check(account["balance"], snapshot()[0].get("start_balance"), account_id=TARGET["gate_id"])
     if gate["locked"] and not acknowledge_loss:
-        raise ValueError("$500 account loss lock. Explicit loss-reset confirmation required.")
+        raise ValueError(f"Account loss lock ({gate.get('limit','configured')} USD). Explicit loss-reset confirmation required.")
     positions, orders = account_state(token)
     _, _, jobs = snapshot()
     if positions or orders or any(j["state"] not in ("Closed", "Rejected") for j in jobs):
@@ -317,6 +319,30 @@ def build_order(signal, contract, quantity, max_loss=None):
                 side=0 if signal["signal"] == "LONG" else 1, size=quantity,
                 customTag=f"gx-{PROFILE}-{signal['id']}",
                 stopLossBracket=dict(ticks=-ticks if signal["signal"] == "LONG" else ticks, type=4))
+
+
+def check_order_safeguards(payload,gate,positions=(),orders=(),jobs=(),own_alert=None):
+    limits=safeguards.active(TARGET['gate_id'])
+    product=next((v for v in MICROS.values() if payload['contractId'].startswith('CON.F.US.'+v[0]+'.')),None)
+    if product is None or payload['size']>limits.max_contracts:
+        raise ValueError('Order exceeds the active account contract maximum')
+    risk=abs(payload['stopLossBracket']['ticks'])*product[2]*product[3]*payload['size']
+    open_risk=0.
+    for position in positions:
+        job=next((j for j in jobs if j.get('contract_id')==position.get('contractId') and j.get('state')=='Open'),None)
+        stop=next((o for o in orders if job and protective_order(o,job)),None)
+        if not job or not stop:
+            raise ValueError('Cannot verify open stop risk for existing account exposure')
+        specification=next((v for v in MICROS.values() if v[0]==job['symbol']),None)
+        if not specification:
+            raise ValueError('Unknown open instrument risk')
+        distance=(position['averagePrice']-stop['stopPrice'])*(1 if job['side']==0 else -1)
+        open_risk+=max(0,distance)*specification[3]*position['size']
+    if risk+open_risk>limits.max_open_risk:
+        raise ValueError('Order exceeds the active total open stop-risk budget')
+    if gate.get('locked') or risk>min(limits.max_trade_risk,limits.loss_lock-max(0,gate.get('loss',0))):
+        raise ValueError('Order exceeds active stop-risk or remaining account-loss budget')
+    return risk
 
 
 def close_job(job, token):
@@ -471,7 +497,7 @@ def cycle(token):
                 original_stop = signal.get("initial_stop",signal["stop"])
                 invalid_box_fill = not (original_stop<fill<signal["target"] if job["side"]==0 else signal["target"]<fill<original_stop)
             if (not protected and time.time() - job["sent_at"] > 15) or (signal and signal["status"] == "Closed") or risk_stop or settings.get("emergency_close") or scheduled_exit or invalid_box_fill:
-                job["close_reason"] = ("Invalid box stop/target after actual broker fill" if invalid_box_fill else "User emergency close" if settings.get("emergency_close") else "$500 account loss lock" if risk_stop else "Scheduled 15:05 CT flatten" if scheduled_exit else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
+                job["close_reason"] = ("Invalid box stop/target after actual broker fill" if invalid_box_fill else "User emergency close" if settings.get("emergency_close") else "Account loss lock" if risk_stop else "Scheduled 15:05 CT flatten" if scheduled_exit else "Missing verified broker stop" if not protected else signal.get("exit_reason", "Signal closed"))
                 bot_audit.emit(f"job:{job['alert_id']}:exit", "Exit decision", job["close_reason"], job["alert_id"], severity="warning" if risk_stop or not protected else "info", notify=True)
                 job["close_time"] = time.time()
                 close_job(job, token)
@@ -530,7 +556,7 @@ def cycle(token):
         return
     if gate["locked"]:
         pause()
-        status("$500 account loss lock: confirmation required")
+        status(f"Account loss lock ({gate.get('limit','configured')} USD): confirmation required")
         return
     if not market_session()["is_open"]:
         status("Waiting for market session")
@@ -613,6 +639,7 @@ def cycle(token):
         try:
             selected_quantity = manager_selected[signal["id"]].quantity if manager_selected is not None else entry_quantity(settings["quantities"][micro], positions, jobs)
             payload = build_order({**signal,"entry":confirmation["price"]}, contract, overnight_policy.quantity(selected_quantity))
+            check_order_safeguards(payload,gate,positions,orders,jobs)
         except ValueError as error:
             status(f"Signal skipped: {error}")
             continue
@@ -725,6 +752,12 @@ def cycle(token):
                 save_job(job)
                 return
             payload = build_order({**current_signal,"entry":confirmation["price"]}, contract, payload["size"])
+            try:
+                check_order_safeguards(payload,fresh_gate,fresh_positions,fresh_orders,fresh_jobs,job['alert_id'])
+            except ValueError as error:
+                job.update(state='Rejected',error_message=f'Not submitted: {error}')
+                save_job(job)
+                return
             if job_session(job):
                 from goxtrade.execution.practice_automation import validate_payload
                 try:

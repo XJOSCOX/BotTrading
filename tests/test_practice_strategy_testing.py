@@ -67,7 +67,7 @@ class PracticeSessionTests(unittest.TestCase):
         current=executor.snapshot()[0]
         self.assertTrue(current["enabled"])
         self.assertEqual(current["quantities"],settings["quantities"])
-        self.assertEqual(current["max_trade_loss"],500.)
+        self.assertEqual(current["max_trade_loss"],75.)
         self.assertEqual(current["max_run_loss"],500.)
         self.assertEqual(current["automation"]["id"],session["id"])
         config=read_vwap_ema_config()
