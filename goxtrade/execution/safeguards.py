@@ -89,6 +89,7 @@ def apply(profile,confirmed_name,revision):
     from goxtrade.config import execution_identity as identity
     from goxtrade.execution import projectx_client
     from goxtrade.execution.live_accounts import copy_role
+    from goxtrade.runtime.build_identity import fingerprint
     if profile not in ('practice','leader'):
         raise ValueError('Unknown execution profile')
     identity.assert_current(profile)
@@ -105,7 +106,7 @@ def apply(profile,confirmed_name,revision):
                 age=(datetime.now(timezone.utc)-datetime.fromisoformat(runtime['updated_at'])).total_seconds()
             except (ValueError,KeyError,TypeError):
                 age=float('inf')
-            if runtime.get('safeguards_version')!=PROTOCOL_VERSION or runtime.get('account_id')!=target['id'] or not 0<=age<45:
+            if runtime.get('safeguards_version')!=PROTOCOL_VERSION or runtime.get('worker_build')!=fingerprint() or runtime.get('account_id')!=target['id'] or not 0<=age<45:
                 raise ValueError('Start or restart the updated account worker before applying safeguards')
         else:
             raise ValueError('Start the account worker before applying safeguards')

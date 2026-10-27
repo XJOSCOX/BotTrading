@@ -26,6 +26,9 @@ from goxtrade.config.execution_identity import PROFILE, TARGET, assert_other_idl
 from goxtrade.strategies.strategy_catalog import order_block as execution_block, crossover_key
 from goxtrade.execution.practice_automation import session_settings, job_session
 from goxtrade.execution import safeguards
+from goxtrade.runtime.build_identity import fingerprint
+
+WORKER_BUILD = fingerprint()
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -72,7 +75,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version=safeguards.PROTOCOL_VERSION, account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", safeguards_version=safeguards.PROTOCOL_VERSION, worker_build=WORKER_BUILD, account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)

@@ -14,7 +14,7 @@ def status():
         leader = dict(running=live_process._pid_running(pid), pid=pid)
     except FileNotFoundError:
         leader = dict(running=False, pid=None)
-    except (OSError, ValueError):
+    except (OSError, ValueError, live_process.ProcessInspectionError):
         leader = dict(running=None, pid=None)
     return dict(market=feed, leader=leader)
 

@@ -6,6 +6,12 @@ from goxtrade.runtime import service_control as services
 
 
 class ServiceControlTests(unittest.TestCase):
+    def test_unknown_leader_process_is_not_reported_stopped(self):
+        with patch.object(services.live_process,'status',return_value=dict(running=None)),patch.object(services.manage_app.LEADER_PID.__class__,'read_text',return_value='123'),patch.object(services.live_process,'_pid_running',side_effect=services.live_process.ProcessInspectionError('restricted')):
+            result=services.status()
+            self.assertIsNone(result['market']['running'])
+            self.assertIsNone(result['leader']['running'])
+
     def mocks(self):
         stack = ExitStack()
         self.addCleanup(stack.close)

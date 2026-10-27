@@ -179,4 +179,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    from goxtrade.runtime.live_process import control_lock
+    # Released by the OS on process exit, even after a crash or missing PID file.
+    with control_lock('market_worker.lock'):
+        main()

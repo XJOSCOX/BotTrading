@@ -10,6 +10,7 @@ from unittest.mock import patch
 from goxtrade.data import live_store
 from goxtrade.config import execution_identity as identity
 from goxtrade.execution import safeguards as sg,practice_safety,practice_executor as executor,projectx_client
+from goxtrade.runtime.build_identity import fingerprint
 
 
 TARGETS=dict(practice=dict(id=41,gate_id=41,name='PRAC-GUARDS-FIXTURE',role='Not assigned'),
@@ -24,7 +25,7 @@ class SafeguardTests(unittest.TestCase):
                   patch.object(executor,'TARGET',TARGETS['practice']),patch.object(executor,'PROFILE','practice')):
             p.start();self.addCleanup(p.stop)
         with closing(executor.db()) as conn:
-            conn.execute("UPDATE practice_control SET settings=?,status=? WHERE id=1",(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,account_id=41,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
+            conn.execute("UPDATE practice_control SET settings=?,status=? WHERE id=1",(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,worker_build=fingerprint(),account_id=41,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
         self.balance=10000.
 
     def provider(self,path,payload,token=None):
@@ -52,7 +53,7 @@ class SafeguardTests(unittest.TestCase):
     def test_leader_safeguards_are_separate_and_do_not_enable_leader(self):
         with closing(executor.db()) as conn:
             conn.execute('CREATE TABLE leader_control(id INTEGER PRIMARY KEY,settings TEXT,status TEXT)')
-            conn.execute('INSERT INTO leader_control VALUES(1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,account_id=42,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
+            conn.execute('INSERT INTO leader_control VALUES(1,?,?)',(json.dumps(dict(enabled=False)),json.dumps(dict(safeguards_version=sg.PROTOCOL_VERSION,worker_build=fingerprint(),account_id=42,updated_at=datetime.now(timezone.utc).isoformat()))));conn.commit()
         original=sg.read(41)
         self.save(account=42,loss_lock=1000,max_contracts=2)
         self.apply(profile='leader')

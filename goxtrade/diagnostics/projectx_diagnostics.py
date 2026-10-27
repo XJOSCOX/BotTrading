@@ -222,6 +222,7 @@ def run(values,transport=None,sleep=time.sleep):
 
 def overview():
     from goxtrade.diagnostics.operational_evidence import overview as operational
+    from goxtrade.diagnostics.practice_readiness import collect as practice_readiness
     return dict(configuration=configuration(),feed=passive(),results=list(_results),
                 authenticated=bool(_auth.get("token")),authenticated_at=_auth.get("at"),broker_execution=False,
-                operational=operational())
+                operational=operational(),practice_readiness=practice_readiness())

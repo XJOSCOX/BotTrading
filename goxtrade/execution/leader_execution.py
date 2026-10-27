@@ -49,14 +49,14 @@ def command(action, **values):
 
 
 def start_worker():
-    from goxtrade.runtime.live_process import _pid_running
+    from goxtrade.runtime.live_process import _pid_running, ProcessInspectionError
     pidfile = ROOT/"data"/"leader_worker.pid"
     if pidfile.exists():
         try:
             if _pid_running(int(pidfile.read_text())):
                 return
-        except (ValueError,OSError):
-            pass
+        except (ValueError,OSError) as error:
+            raise ProcessInspectionError('Leader registration cannot be verified; no second worker started') from error
     logs = ROOT/"data"/"logs"
     logs.mkdir(parents=True,exist_ok=True)
     # Restarting a stopped worker restores exit management, never automatic entries.

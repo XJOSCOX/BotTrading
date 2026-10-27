@@ -1,5 +1,14 @@
 # GoXTrade
 
+## Practice Operations
+
+See [PRACTICE_OPERATIONS.md](docs/PRACTICE_OPERATIONS.md) for Practice-only rollout,
+saved-setting preservation, broker protection, recovery and operating checks.
+Diagnostics now separates passive Practice execution health from strategy/data
+readiness. Source-build checks prevent authorization through an outdated worker;
+unknown process status never authorizes a duplicate worker or removes registration.
+These checks do not certify profitability or future unattended broker behavior.
+
 ## Operational Acceptance
 
 Phase 8 is delivered on `feature/operational-acceptance`, without automatic merge

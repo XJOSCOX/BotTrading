@@ -217,6 +217,21 @@ function DiagnosticsPage(_: PageProps) {
         />
       </section>
       <section className="operational-acceptance">
+        <h2>Practice operations</h2>
+        <Notice danger={data.practice_readiness?.status !== "CHECKS_PASSED"}>
+          {data.practice_readiness?.status === "CHECKS_PASSED"
+            ? "Current operational checks passed"
+            : "Operational checks need attention"}
+        </Notice>
+        <Table
+          heads={["Check", "Status", "Evidence"]}
+          rows={(data.practice_readiness?.checks || []).map((r: Json) => [
+            r.check,
+            r.status,
+            r.detail,
+          ])}
+        />
+        <p className="footnote">{data.practice_readiness?.limitation}</p>
         <h2>Operational acceptance</h2>
         <Notice>
           {data.operational?.restrictions || "Readiness unavailable"}

@@ -226,7 +226,8 @@ class NativeApiTests(unittest.TestCase):
         target = api_module.identity.TARGETS["practice"]
         settings = dict(quantities=dict(MNQ=3,MES=2,MYM=1),enable_mym=False)
         from goxtrade.execution.safeguards import PROTOCOL_VERSION
-        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True,safeguards_version=PROTOCOL_VERSION)
+        from goxtrade.runtime.build_identity import fingerprint
+        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True,safeguards_version=PROTOCOL_VERSION,worker_build=fingerprint())
         body = dict(name=target["name"],safeguards=True,quantities=settings["quantities"],strategies=["crt"])
         with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
                 patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Mocked broker unavailable")) as start:
@@ -240,6 +241,15 @@ class NativeApiTests(unittest.TestCase):
             for action in ("arm","strategy-test"):
                 self.assertEqual(self.post('/api/execution/practice/'+action,body).status_code,400)
             arm.assert_not_called()
+
+    def test_stale_worker_build_cannot_authorize_entries(self):
+        target=api_module.identity.TARGETS['practice']
+        from goxtrade.execution.safeguards import PROTOCOL_VERSION
+        runtime=dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target['id'],practice_automation=True,safeguards_version=PROTOCOL_VERSION,worker_build='old-source')
+        body=dict(name=target['name'],safeguards=True,quantities=dict(MNQ=1,MES=1,MYM=1),strategies=['crt'])
+        with patch.object(practice_executor,'snapshot',return_value=({},runtime,[])),patch('goxtrade.execution.practice_automation.start') as start:
+            self.assertEqual(self.post('/api/execution/practice/start',body).status_code,400)
+            start.assert_not_called()
 
     def test_safeguard_save_is_persistent_and_does_not_apply_or_arm(self):
         original=self.client.get('/api/safeguards/practice').json()

@@ -659,6 +659,9 @@ def execute(profile, action, body):
         if not 0 <= elapsed < 45 or runtime.get("account_id") != target["id"]:
             raise ValueError("A fresh worker for this exact account must be online before authorization")
         from goxtrade.execution.safeguards import PROTOCOL_VERSION
+        from goxtrade.runtime.build_identity import fingerprint
+        if runtime.get('worker_build')!=fingerprint():
+            raise ValueError('Restart the paused account worker while flat to load the installed build before authorization')
         if runtime.get('safeguards_version')!=PROTOCOL_VERSION:
             raise ValueError('Restart the account worker to load configurable safeguard enforcement before authorization')
         if action == "start" and runtime.get("practice_automation") is not True:
