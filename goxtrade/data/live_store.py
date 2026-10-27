@@ -77,23 +77,43 @@ def save_quote(symbol: str, contract_id: str, payload: dict) -> None:
             """,
             (symbol, contract_id, price, best_bid, best_ask, volume, event_time, received_at),
         )
-        conn.execute(
-            """
-            insert into latest_quotes
-            (symbol, contract_id, last_price, best_bid, best_ask, volume, event_time, received_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
-            on conflict(symbol) do update set
-                contract_id=excluded.contract_id,
-                last_price=excluded.last_price,
-                best_bid=excluded.best_bid,
-                best_ask=excluded.best_ask,
-                volume=excluded.volume,
-                event_time=excluded.event_time,
-                received_at=excluded.received_at
-            """,
-            (symbol, contract_id, price, best_bid, best_ask, volume, event_time, received_at),
-        )
+        update_quote(conn, symbol, contract_id, payload, received_at)
         conn.commit()
+
+
+def update_quote(conn, symbol, contract_id, payload, received_at):
+    """Merge omitted fields, never explicit nulls or timestamps from old sides."""
+    previous = conn.execute("SELECT * FROM latest_quotes WHERE symbol=?", (symbol,)).fetchone()
+    previous = dict(previous) if previous and previous["contract_id"] == contract_id else {}
+    stamp = payload.get("timestamp") or payload.get("lastUpdated")
+
+    def parsed(value):
+        try:
+            result = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return result if result.tzinfo is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    old_time, new_time = parsed(previous.get("event_time")), parsed(stamp)
+    if old_time is not None and new_time is not None and new_time < old_time:
+        return  # Raw events are retained, but delayed quotes cannot regress the cache.
+    fields = {column: payload[key] if key in payload else previous.get(column)
+              for key, column in (("lastPrice", "last_price"), ("bestBid", "best_bid"),
+                                  ("bestAsk", "best_ask"), ("volume", "volume"))}
+    fields["last_price"] = valid_price(symbol, fields["last_price"])
+    if previous and ("bestBid" not in payload or "bestAsk" not in payload):
+        # A partial update must not renew the freshness of the carried quote side.
+        stamp = min(old_time, new_time).isoformat() if old_time and new_time else None
+        old_received, new_received = parsed(previous.get("received_at")), parsed(received_at)
+        received_at = min(old_received, new_received).isoformat() if old_received and new_received else received_at
+    conn.execute("""INSERT INTO latest_quotes
+        (symbol,contract_id,last_price,best_bid,best_ask,volume,event_time,received_at)
+        VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET
+        contract_id=excluded.contract_id,last_price=excluded.last_price,
+        best_bid=excluded.best_bid,best_ask=excluded.best_ask,volume=excluded.volume,
+        event_time=excluded.event_time,received_at=excluded.received_at""",
+        (symbol, contract_id, fields["last_price"], fields["best_bid"], fields["best_ask"],
+         fields["volume"], stamp, received_at))
 
 
 def save_trade(symbol: str, contract_id: str, payload: dict) -> None:

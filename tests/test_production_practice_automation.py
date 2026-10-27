@@ -53,7 +53,7 @@ class ProductionAutomationTests(unittest.TestCase):
 
     def test_history_recovery_retries_empty_failed_and_rolled_contracts(self):
         initialized=set(); reader=object()
-        with patch("goxtrade.data.history_recovery.contract_for_symbol",return_value="first"),patch("goxtrade.data.history_recovery.backfill_history",side_effect=[0,20,10]) as fetch:
+        with patch("goxtrade.data.history_recovery.older_history_missing",return_value=False),patch("goxtrade.data.history_recovery.contract_for_symbol",return_value="first"),patch("goxtrade.data.history_recovery.backfill_history",side_effect=[0,20,10]) as fetch:
             recover_once(["MNQ=F"],initialized,reader)
             self.assertFalse(initialized)
             recover_once(["MNQ=F"],initialized,reader)
@@ -64,6 +64,36 @@ class ProductionAutomationTests(unittest.TestCase):
             self.assertNotIn(("MNQ=F","rolled"),initialized)
             self.assertIn("unavailable",result["MNQ=F"])
             self.assertEqual(fetch.call_args.args[1],168)
+
+    def test_partial_bootstrap_retries_old_history_without_clearing_saved_bars(self):
+        initialized={('YM=F','fixture')}
+        with patch('goxtrade.data.history_recovery.older_history_missing',side_effect=[True,False]), \
+                patch('goxtrade.data.history_recovery.contract_for_symbol',return_value='fixture'), \
+                patch('goxtrade.data.history_recovery.backfill_history',return_value=20) as fetch:
+            recover_once(['YM=F'],initialized,object())
+            recover_once(['YM=F'],initialized,object())
+        self.assertEqual([call.args[1] for call in fetch.call_args_list],[168,2])
+
+    def test_history_coverage_ignores_exchange_closures_but_detects_old_holes(self):
+        import sqlite3
+        import pandas as pd
+        from goxtrade.data.history_recovery import older_history_missing
+        from goxtrade.data.historical_quality import expected_minutes
+        from datetime import datetime,timezone
+        now=datetime(2026,10,27,5,0,tzinfo=timezone.utc)
+        expected=expected_minutes(pd.Timestamp(now)-pd.Timedelta(hours=48),pd.Timestamp(now)-pd.Timedelta(hours=2))
+        def database(missing=False):
+            conn=sqlite3.connect(':memory:')
+            conn.execute('CREATE TABLE strategy_historical_minutes(symbol,contract_id,time)')
+            conn.executemany('INSERT INTO strategy_historical_minutes VALUES (?,?,?)',
+                             [('YM=F','fixture',t.isoformat()) for t in (expected[:-1] if missing else expected)])
+            return conn
+        with patch('goxtrade.data.history_recovery.connect',side_effect=lambda:database()):
+            self.assertFalse(older_history_missing('YM=F','fixture',48,now))
+        with patch('goxtrade.data.history_recovery.connect',side_effect=lambda:database(True)):
+            self.assertTrue(older_history_missing('YM=F','fixture',48,now))
+        with patch('goxtrade.data.history_recovery.connect',side_effect=lambda:database()):
+            self.assertTrue(older_history_missing('YM=F','different-contract',48,now))
 
     def test_history_download_chunks_are_bounded_and_invalid_data_is_not_persisted(self):
         from goxtrade.data import chart_history as history

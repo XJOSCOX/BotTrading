@@ -5,11 +5,40 @@ from threading import Event
 from unittest.mock import Mock, patch
 from datetime import datetime,timezone
 from contextlib import closing
+import pandas as pd
 from goxtrade.data import live_store
 from goxtrade.data.tick_buffer import TickBuffer, write_batch, event_age
 
 
 class TickBufferTests(unittest.TestCase):
+    def test_partial_quotes_merge_within_and_across_batches_without_renewing_sides(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(live_store,'DB_PATH',Path(folder)/'partial.db'):
+            full = dict(lastPrice=100.,bestBid=99.75,bestAsk=100.25,timestamp='2026-10-27T05:00:00Z')
+            write_batch([('quote','MNQ=F','fixture',full,'2026-10-27T05:00:01Z'),
+                         ('quote','MNQ=F','fixture',dict(bestBid=100.,timestamp='2026-10-27T05:00:02Z'),'2026-10-27T05:00:03Z')])
+            quote=live_store.latest_quotes().iloc[0]
+            self.assertEqual((quote.best_bid,quote.best_ask),(100.,100.25))
+            self.assertEqual(event_age(quote.event_time,datetime(2026,10,27,5,0,11,tzinfo=timezone.utc)),11)
+            live_store.save_quote('MNQ=F','fixture',dict(lastPrice=100.25,timestamp='2026-10-27T05:00:12Z'))
+            quote=live_store.latest_quotes().iloc[0]
+            self.assertEqual((quote.best_bid,quote.best_ask),(100.,100.25))
+            self.assertEqual(event_age(quote.event_time,datetime(2026,10,27,5,0,12,tzinfo=timezone.utc)),12)
+            with closing(live_store.connect()) as conn:
+                raw=conn.execute('SELECT best_ask FROM live_ticks ORDER BY id').fetchall()
+            self.assertEqual([r[0] for r in raw],[100.25,None,None])
+
+    def test_quote_nulls_rollover_and_old_full_quotes_do_not_resurrect_book(self):
+        with tempfile.TemporaryDirectory() as folder, patch.object(live_store,'DB_PATH',Path(folder)/'invalid.db'):
+            live_store.save_quote('MNQ=F','old',dict(bestBid=100.,bestAsk=100.25,timestamp='2026-10-27T05:00:02Z'))
+            live_store.save_quote('MNQ=F','old',dict(bestBid=99.,bestAsk=99.25,timestamp='2026-10-27T05:00:01Z'))
+            self.assertEqual(live_store.latest_quotes().iloc[0].best_bid,100.)
+            live_store.save_quote('MNQ=F','old',dict(bestBid=None,timestamp='2026-10-27T05:00:03Z'))
+            self.assertTrue(pd.isna(live_store.latest_quotes().iloc[0].best_bid))
+            live_store.save_quote('MNQ=F','new',dict(bestBid=101.,timestamp='2026-10-27T05:00:04Z'))
+            self.assertTrue(pd.isna(live_store.latest_quotes().iloc[0].best_ask))
+            live_store.save_quote('MNQ=F','new',dict(bestBid=101.,bestAsk=101.25,timestamp='2026-10-27T05:00:05Z'))
+            self.assertEqual(live_store.latest_quotes().iloc[0].event_time,'2026-10-27T05:00:05Z')
+
     def test_notification_occurs_only_after_data_is_committed(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store,'DB_PATH',Path(folder)/'notify.db'):
             observed=[]

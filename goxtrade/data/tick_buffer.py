@@ -5,7 +5,7 @@ from queue import Queue, Empty, Full
 from threading import Event, Thread
 import logging
 import time
-from goxtrade.data.live_store import connect, utc_now
+from goxtrade.data.live_store import connect, utc_now, update_quote
 from goxtrade.data.price_ticks import valid_price
 
 
@@ -20,20 +20,18 @@ def event_age(value, now=None):
 
 
 def write_batch(events):
-    ticks, quotes = [], {}
+    ticks, quotes = [], []
     for kind, symbol, contract, payload, received in events:
         price = valid_price(symbol, payload.get("lastPrice" if kind == "quote" else "price"))
         timestamp = payload.get("timestamp") or (payload.get("lastUpdated") if kind == "quote" else None)
         bid, ask = (payload.get("bestBid"),payload.get("bestAsk")) if kind == "quote" else (None,None)
         ticks.append((symbol,contract,kind,price,bid,ask,payload.get("volume"),timestamp,received))
         if kind == "quote":
-            quotes[symbol] = (symbol,contract,price,bid,ask,payload.get("volume"),timestamp,received)
+            quotes.append((symbol, contract, payload, received))
     with closing(connect()) as conn:
         conn.executemany("INSERT INTO live_ticks(symbol,contract_id,event_type,price,best_bid,best_ask,volume,event_time,received_at) VALUES(?,?,?,?,?,?,?,?,?)",ticks)
-        conn.executemany("""INSERT INTO latest_quotes(symbol,contract_id,last_price,best_bid,best_ask,volume,event_time,received_at)
-            VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(symbol) DO UPDATE SET contract_id=excluded.contract_id,
-            last_price=excluded.last_price,best_bid=excluded.best_bid,best_ask=excluded.best_ask,
-            volume=excluded.volume,event_time=excluded.event_time,received_at=excluded.received_at""",quotes.values())
+        for symbol, contract, payload, received in quotes:
+            update_quote(conn, symbol, contract, payload, received)
         conn.commit()
 
 
