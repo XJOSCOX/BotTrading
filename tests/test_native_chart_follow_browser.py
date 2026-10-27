@@ -27,7 +27,8 @@ def run():
                 elif path == "/api/chart":
                     result = dict(points=[dict(time=1793106000+i*60, open=100+i*.25,
                         high=101+i*.25, low=99+i*.25, close=100.5+i*.25, volume=10+i,
-                        rsi=50+math.sin(i)*10, ema20=100+i*.25, ema50=99+i*.25)
+                        rsi=50+math.sin(i)*10, ema20=100+i*.25, ema50=99+i*.25,
+                        vwap=100+i*.125)
                         for i in range(count[0])])
                 elif path == "/api/snapshot":
                     result = dict(profiles={}, monitor=[], alerts=[], events=[], prices={})
@@ -51,6 +52,12 @@ def run():
                 return page.evaluate("JSON.parse(localStorage.getItem('gx-range-NQ=F-1'))")
 
             wait_latest()
+            vwap = page.get_by_role("checkbox", name="VWAP", exact=True)
+            expect(vwap).to_be_checked()
+            expect(page.locator(".chart-ohlc").first).to_contain_text("VWAP 124.88")
+            vwap.uncheck()
+            expect(page.locator(".chart-ohlc").first).not_to_contain_text("VWAP")
+            vwap.check()
             initial = viewport()
             assert abs(initial['to']-initial['from']-50)<.1
             page.get_by_role("button", name="Zoom in", exact=True).click()

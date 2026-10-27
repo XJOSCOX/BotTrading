@@ -42,6 +42,9 @@ export const MarketChart = memo(function MarketChart({
     () => Number(localStorage.getItem("gx-rsi-height")) || 120,
   );
   const [ema, setEma] = useState(true);
+  const [vwap, setVwap] = useState(
+    () => localStorage.getItem("gx-chart-vwap") !== "false",
+  );
   const [isFollowing, setIsFollowing] = useState(true);
   const syncing = useRef(false),
     updating = useRef(false),
@@ -201,7 +204,13 @@ export const MarketChart = memo(function MarketChart({
         priceLineVisible: false,
       });
     charts.current = [p, v, r];
-    series.current = [candle, volume, rsi, fast, slow];
+    const sessionVwap = p.addLineSeries({
+      color: "#69b6e5",
+      lineWidth: 2,
+      priceLineVisible: false,
+      title: "VWAP",
+    });
+    series.current = [candle, volume, rsi, fast, slow, sessionVwap];
     for (const current of charts.current) {
       current.timeScale().subscribeVisibleLogicalRangeChange((range) => {
         if (!range || syncing.current || updating.current) return;
@@ -231,7 +240,7 @@ export const MarketChart = memo(function MarketChart({
   }, [symbol, minutes, rangeKey]);
   useEffect(() => {
     if (!series.current.length || loadedKey.current !== requestKey) return;
-    const [candle, vol, rsi, fast, slow] = series.current;
+    const [candle, vol, rsi, fast, slow, sessionVwap] = series.current;
     const old = charts.current[0].timeScale().getVisibleLogicalRange();
     const first = candle.data().length === 0;
     updating.current = true;
@@ -262,6 +271,11 @@ export const MarketChart = memo(function MarketChart({
     );
     fast.setData(points.map((p) => ({ time: p.time, value: p.ema20 })));
     slow.setData(points.map((p) => ({ time: p.time, value: p.ema50 })));
+    sessionVwap.setData(
+      points.map((p) =>
+        p.vwap == null ? { time: p.time } : { time: p.time, value: p.vwap },
+      ),
+    );
     if (!points.length) {
       updating.current = false;
       return;
@@ -299,7 +313,8 @@ export const MarketChart = memo(function MarketChart({
     const chart = charts.current[0],
       candle = series.current[0];
     if (!chart || !candle) return;
-    const viewport = appliedRange.current || chart.timeScale().getVisibleLogicalRange();
+    const viewport =
+      appliedRange.current || chart.timeScale().getVisibleLogicalRange();
     updating.current = true;
     levelLines.current.forEach((line) => candle.removePriceLine(line));
     levelLines.current = [];
@@ -391,8 +406,11 @@ export const MarketChart = memo(function MarketChart({
     updating.current = false;
   }, [overlay, points]);
   useEffect(() => {
-    series.current.slice(3).forEach((s) => s.applyOptions({ visible: ema }));
+    series.current.slice(3, 5).forEach((s) => s.applyOptions({ visible: ema }));
   }, [ema, points.length]);
+  useEffect(() => {
+    series.current[5]?.applyOptions({ visible: vwap });
+  }, [vwap, points.length, symbol, minutes]);
   function drag(
     event: React.PointerEvent<HTMLDivElement>,
     pane: "volume" | "rsi",
@@ -429,6 +447,17 @@ export const MarketChart = memo(function MarketChart({
             onChange={(e) => setEma(e.target.checked)}
           />
           EMA 20/50
+        </label>
+        <label title="Session VWAP (HLC3), resets at 17:00 CT">
+          <input
+            type="checkbox"
+            checked={vwap}
+            onChange={(e) => {
+              setVwap(e.target.checked);
+              localStorage.setItem("gx-chart-vwap", String(e.target.checked));
+            }}
+          />
+          VWAP
         </label>
         <button
           className="icon"
@@ -504,6 +533,7 @@ export const MarketChart = memo(function MarketChart({
         <div className="chart-ohlc">
           O {price(last.open)} &nbsp; H {price(last.high)} &nbsp; L{" "}
           {price(last.low)} &nbsp; C {price(last.close)}
+          {vwap && <> &nbsp; VWAP {price(last.vwap)}</>}
         </div>
       )}
       {overlay?.box && (
