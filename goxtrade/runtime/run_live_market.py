@@ -142,6 +142,8 @@ def main() -> None:
     from goxtrade.execution.practice_history import run as run_history
     Thread(target=run_history, name="practice-history-readonly", daemon=True).start()
     feed_symbols = list(dict.fromkeys([*load_symbols(), *SYMBOLS, *MICRO_SYMBOLS]))
+    from goxtrade.data.history_recovery import run as recover_history
+    Thread(target=recover_history,args=(feed_symbols,),name="history-recovery-readonly",daemon=True).start()
     delay = 30
     rejected_credentials = None
     while True:

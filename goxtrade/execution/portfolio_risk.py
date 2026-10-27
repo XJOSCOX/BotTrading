@@ -120,7 +120,8 @@ def authorize_risk(candidate, state, policy, now):
     available = min(policy.max_trade_risk, policy.max_open_risk-used, policy.max_group_risk-group_used,
                     policy.max_daily_loss+min(0., state.realized), policy.max_daily_loss_with_open+state.realized+min(0., state.unrealized),
                     dict(policy.strategy_budgets).get(candidate.strategy_id, policy.max_open_risk)-strategy_used)
-    for quantity in range(min(policy.requested_quantity, policy.max_contracts), 0, -1):
+    requested=dict(policy.symbol_quantities).get(candidate.symbol,policy.requested_quantity)
+    for quantity in range(min(requested, policy.max_contracts), 0, -1):
         risk = planned_risk(candidate, quantity, policy)
         gross = sum(p.notional for p in grouped)+abs(candidate.price)*instrument(candidate.symbol).point_value*quantity
         signed = sum(p.notional*(1 if p.direction == "LONG" else -1) for p in grouped)

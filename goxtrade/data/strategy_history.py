@@ -110,7 +110,10 @@ def load_strategy_minutes(symbol, contract_id, now, hours=72, refresh=True):
     return frame
 
 
-def latest_trade(symbol, contract_id):
+def latest_trade(symbol, contract_id, as_of=None):
     with closing(connect()) as conn:
-        row = conn.execute("SELECT id,price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND price IS NOT NULL ORDER BY id DESC LIMIT 1", (symbol, contract_id)).fetchone()
-    return dict(row) if row else None
+        rows = conn.execute("SELECT id,price,event_time,received_at FROM live_ticks WHERE symbol=? AND contract_id=? AND event_type='trade' AND price IS NOT NULL ORDER BY id DESC LIMIT 100", (symbol, contract_id)).fetchall()
+    for row in rows:
+        if as_of is None or all(pd.Timestamp(row[field])<=pd.Timestamp(as_of) for field in ('event_time','received_at')):
+            return dict(row)
+    return None

@@ -189,16 +189,32 @@ armed by this workflow.
 See [Practice Execution Validation](docs/PRACTICE_EXECUTION_VALIDATION.md) for
 actual provider evidence, mocked coverage and outstanding execution blockers.
 
-## Automated Practice Strategy Testing
+## Practice Automation
 
-Execution now has an explicit **Start Practice strategy testing** control. The
-initial test uses one MNQ with the existing confirmed 3-minute VWAP EMA9 crossover,
-manager arbitration and the existing protected-order executor. Stopping entries
+Execution has an explicit **Start Practice automation** control. Save strategies,
+micro sizes and cooldown in Control Center, then review the exact account and
+saved quantities in the Start confirmation. The shared manager and protected-order
+executor apply the existing risk limits; no per-order approval is needed. Starting
+does not reset VWAP/EMA parameters or force one strategy, timeframe or size.
+Running sessions keep frozen settings; Pause and Start explicitly to adopt edits.
+The interface distinguishes active size limits from pending saved settings.
+Stopping entries
 leaves open-position management active; no per-order confirmation is required
 once the operator starts the session. Leader is never activated by this control.
 The existing $500 account loss lock is unchanged. See
 [Practice Strategy Testing](docs/PRACTICE_STRATEGY_TESTING.md) for actual versus
 replay evidence, configuration, controls, limits and current results.
+
+The market worker recovers genuine contract-specific history independently of
+the browser: bounded seven-day startup hydration (including weekends), followed
+by rolling repair requests. Missing provider bars remain missing, never fabricated.
+Legacy Practice arming is disabled; only the manager-controlled Start can arm it.
+Regression fixtures, offline replay and manually invoked broker diagnostics remain
+development tools, not automatic entry paths. Do not delete the regression suite.
+The final rounded order is checked against planned-risk and remaining account
+budgets before transmission. Broker gaps and slippage can still exceed estimates.
+The reviewed exchange calendar must be maintained; expiry deliberately blocks
+entries. No automatic calendar approval or loss-baseline reset is performed.
 
 ## Strategy Manager
 
@@ -206,7 +222,7 @@ The shared Strategy Manager evaluates all strategies together in shadow/research
 mode, with deterministic conflicts, portfolio risk, atomic research reservations,
 causal multi-instrument backtests and separate forward paper accounting. Paper is
 off by default; these research controls cannot authorize broker orders. Explicit
-Practice testing sessions now reuse the same decision engine through the existing
+Practice automation sessions reuse the same decision engine through the existing
 executor; Leader manager cutover remains prohibited. Practice and Leader expose the same
 catalog and shared parameter/interval controls without copying account execution
 permissions. See [Strategy Execution Manager](docs/STRATEGY_EXECUTION_MANAGER.md)

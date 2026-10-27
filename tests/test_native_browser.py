@@ -91,11 +91,12 @@ def run():
         def snapshot_override(route):
             response=route.fetch();data=response.json();profile=data["profiles"]["practice"]
             profile["runtime"]=dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=profile["target"]["id"])
+            profile["settings"]["enabled"]=False
             route.fulfill(response=response,json=data)
         page.route("**/api/snapshot",snapshot_override)
         page.route_web_socket("**/api/stream",lambda socket:None)
         page.goto(base+"/#execution")
-        page.get_by_role("button",name="Start practice",exact=True).click(timeout=15000)
+        page.get_by_role("button",name="Start Practice automation",exact=True).click(timeout=15000)
         dialog=page.get_by_role("dialog")
         dialog.wait_for()
         confirm=dialog.get_by_role("button",name="Confirm start")

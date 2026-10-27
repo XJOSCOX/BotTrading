@@ -19,18 +19,23 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
     [name, setName] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [ack, setAck] = useState(false),
-    [testStrategy, setTestStrategy] = useState("vwap_ema_cross"),
     [tab, setTab] = useState("Order attempts");
   const valid = fresh(runtime.updated_at),
     credential = !!config.credentials_present,
-    target = config.targets[profile];
+    target = config.targets[profile],
+    automation = settings.automation || settings.strategy_testing,
+    savedStrategies = (config.policies?.[profile]?.strategies || []).map(
+      (name: string) => config.strategies.find((s: Json) => s.name === name)?.id,
+    ).filter(Boolean),
+    activeSizes = Object.fromEntries(automation?.policy?.symbol_quantities || []);
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const result = await act(`/execution/${profile}/${dialog}`, {
       name,
       safeguards: confirmed,
       acknowledge_loss: ack,
-      strategies: [testStrategy],
+      strategies: savedStrategies,
+      quantities: settings.quantities,
     });
     if (result) setDialog("");
   };
@@ -67,12 +72,14 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             {["MNQ", "MES", "MYM"].map((s) => (
               <Metric
                 key={s}
-                label={s}
+                label={`${s} ${settings.enabled && automation ? "active max" : "saved"}`}
                 value={
-                  (settings.strategy_testing && s !== "MNQ") ||
+                  (settings.enabled && automation && !automation.policy.symbols.includes(s)) ||
                   (s === "MYM" && !settings.enable_mym)
                     ? "Off"
-                    : (settings.quantities?.[s] ?? 2)
+                    : settings.enabled && automation
+                      ? Math.min(activeSizes[s] ?? automation.policy.requested_quantity, automation.policy.max_contracts)
+                      : (settings.quantities?.[s] ?? "Not set")
                 }
               />
             ))}
@@ -106,19 +113,9 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
           )}
           {profile === "practice" && (
             <>
-              <Field label="Practice test strategy">
-                <select
-                  value={testStrategy}
-                  onChange={(e) => setTestStrategy(e.target.value)}
-                  disabled={busy || settings.enabled}
-                >
-                  {(config.strategies || []).map((s: Json) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
+              <h3>Saved entry settings</h3>
+              <p>{(config.policies?.practice?.strategies || []).join(", ")}</p>
+              <p>{(config.policies?.practice?.symbols || []).map((s: string) => `${s}: ${settings.quantities?.[s] ?? "Not set"}`).join(" / ")}</p>
               <button
                 className="primary"
                 disabled={
@@ -126,26 +123,27 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                   !credential ||
                   !valid ||
                   settings.enabled ||
+                  !savedStrategies.length ||
                   config.restart_required
                 }
-                onClick={() => open("strategy-test")}
+                onClick={() => open("start")}
               >
                 <Play size={16} />
-                Start Practice strategy testing
+                Start Practice automation
               </button>
-              {settings.strategy_testing && (
+              {automation && (
                 <p className="runtime-message">
-                  MNQ · 1 contract ·{" "}
-                  {settings.strategy_testing.strategies.join(", ")} · Manager
+                  {automation.policy.symbols.join(", ")} ·{" "}
+                  {automation.strategies.join(", ")} · Manager
                   arbitration
                 </p>
               )}
-              {settings.strategy_testing &&
+              {automation &&
                 (live.monitor || [])
                   .filter(
                     (r: Json) =>
                       r.symbol === "NQ=F" &&
-                      settings.strategy_testing.strategies.includes(
+                      automation.strategies.includes(
                         r.signal?.strategy_id,
                       ),
                   )
@@ -168,8 +166,8 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             }
           >
             <Pause size={16} />
-            {profile === "practice" && settings.strategy_testing
-              ? "Stop Practice strategy testing"
+            {profile === "practice" && automation
+              ? "Pause Practice entries"
               : "Pause new entries"}
           </button>
           {profile === "leader" && !valid && (
@@ -327,7 +325,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
       {dialog && (
         <Modal
           title={
-            dialog === "arm" || dialog === "strategy-test"
+            dialog === "arm" || dialog === "start"
               ? "Authorize " + profile + " trading"
               : "Request emergency close"
           }
@@ -335,9 +333,9 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
         >
           <form onSubmit={submit}>
             <Notice danger>
-              {dialog === "arm" || dialog === "strategy-test"
-                ? dialog === "strategy-test"
-                  ? "Starts automatic MNQ Practice entries for the selected strategy, one contract, through the manager. No per-trade approval. Leader remains disabled. Pause stops new entries, not position management."
+              {dialog === "arm" || dialog === "start"
+                ? dialog === "start"
+                  ? `Authorizes automatic Practice entries through the manager with these saved sizes: ${(config.policies?.practice?.symbols || []).map((s: string) => `${s} ${settings.quantities?.[s]}`).join(", ")}. Strategies: ${(config.policies?.practice?.strategies || []).join(", ")}. Existing risk limits remain authoritative and can reduce or block size. Leader is not enabled. Pause stops entries, not exit management.`
                   : "This explicitly enables new automatic entries after broker preflight."
                 : "This pauses entries and requests a close of bot-owned positions. A request is not a confirmed fill."}
             </Notice>
@@ -371,18 +369,18 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                   busy ||
                   !confirmed ||
                   name !== target.name ||
-                  ((dialog === "arm" || dialog === "strategy-test") &&
+                  ((dialog === "arm" || dialog === "start") &&
                     p.gate?.locked &&
                     !ack)
                 }
               >
-                {dialog === "arm" || dialog === "strategy-test" ? (
+                {dialog === "arm" || dialog === "start" ? (
                   <Play size={16} />
                 ) : (
                   <ShieldAlert size={16} />
                 )}
                 Confirm{" "}
-                {dialog === "arm" || dialog === "strategy-test"
+                {dialog === "arm" || dialog === "start"
                   ? "start"
                   : "close request"}
               </button>

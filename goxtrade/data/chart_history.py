@@ -9,24 +9,39 @@ from goxtrade.data.live_store import attach_time, connect
 from goxtrade.data.price_ticks import valid_price
 
 
-def backfill_history(symbol):
+def backfill_history(symbol, hours=48, reader=None):
+    if type(hours) is not int or not 1<=hours<=24*16:
+        raise ValueError("History lookback must be 1-384 hours")
     contract = contract_for_symbol(symbol)
     if not contract:
         raise ValueError("No contract mapping")
     end = datetime.now(timezone.utc).replace(second=0, microsecond=0)
-    response = post('/api/History/retrieveBars', {
-        'contractId': contract, 'live': False, 'startTime': (end - timedelta(hours=48)).isoformat(),
-        'endTime': end.isoformat(), 'unit': 2, 'unitNumber': 1, 'limit': 3000, 'includePartialBar': False,
-    })
-    if not response.get('success'):
-        raise RuntimeError('Historical data request failed')
-    bars = response.get('bars') or []
+    start=end-timedelta(hours=hours)
+    bars=[]
+    cursor=start
+    while cursor<end:
+        chunk_end=min(end,cursor+timedelta(hours=48))
+        payload=dict(contractId=contract,live=False,startTime=cursor.isoformat(),endTime=chunk_end.isoformat(),
+                     unit=2,unitNumber=1,limit=3000,includePartialBar=False)
+        if reader is None:
+            response=post('/api/History/retrieveBars',payload)
+            if response.get('success') is not True or not isinstance(response.get('bars'),list):
+                raise RuntimeError('Historical data request failed')
+            chunk=response['bars']
+        else:
+            chunk=reader.bars(payload)
+        for bar in chunk:
+            stamp=pd.Timestamp(bar['t'])
+            if stamp.tzinfo is None or not pd.Timestamp(cursor)<=stamp<=pd.Timestamp(chunk_end):
+                raise ValueError('Historical response includes an out-of-window candle')
+        bars.extend(bar for bar in chunk if pd.Timestamp(bar['t'])<pd.Timestamp(chunk_end))
+        cursor=chunk_end
     from goxtrade.strategies.vwap_ema_indicators import validate_minutes
     if any(b.get('contractId', contract) != contract for b in bars):
         raise ValueError('Historical response contract does not match the request')
     validated = validate_minutes(pd.DataFrame([dict(time=b['t'],open=b['o'],high=b['h'],low=b['l'],close=b['c'],volume=b.get('v'))
                                              for b in bars], columns=['time','open','high','low','close','volume']))
-    validated = validated.loc[validated['time']+pd.Timedelta(minutes=1) <= end]
+    validated = validated.loc[(validated['time']>=start)&(validated['time']+pd.Timedelta(minutes=1)<=end)]
     bars = [dict(t=row.time,o=row.open,h=row.high,l=row.low,c=row.close,v=row.volume) for row in validated.itertuples()]
     with closing(connect()) as conn:
         from goxtrade.data.strategy_history import initialize

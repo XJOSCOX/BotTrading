@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from tests import test_practice_order_roundtrip as roundtrip_fixtures
 from tests.manager_fixtures import candidate, facts, policy, NOW, CONTRACT
-from goxtrade.execution import practice_executor as executor, practice_strategy_testing as testing
+from goxtrade.execution import practice_executor as executor, practice_automation as testing
 from goxtrade.execution.strategy_manager import evaluate
 from goxtrade.strategies.vwap_ema_config import VwapEmaConfig
 from goxtrade.strategies.strategy_settings import read_vwap_ema_config
@@ -52,27 +52,31 @@ class PracticeSessionTests(unittest.TestCase):
             self.assertFalse(evaluate([row],replace(state,**change),policy(),NOW,scope="broker")[0].selected)
         self.assertFalse(evaluate([candidate(profile="leader")],replace(state,profile="leader"),policy(),NOW,scope="broker")[0].selected)
 
-    def test_start_is_exact_account_one_micro_preserves_limits_and_leader(self):
+    def test_start_uses_explicitly_confirmed_saved_sizes_preserves_limits_and_leader(self):
         settings=dict(enabled=False,max_trade_loss=500.,max_run_loss=500.,start_balance=50000.,quantities=dict(MNQ=3,MES=3,MYM=3),enable_mym=True)
         executor.control(settings)
+        from goxtrade.execution.manager_service import save_policy
+        save_policy(policy().to_dict())
+        from goxtrade.strategies.strategy_settings import save_vwap_ema_config
+        save_vwap_ema_config(VwapEmaConfig(entry_mode="REALTIME",signal_minutes=5,ema_length=12,enabled_symbols=("MNQ=F",)))
         with closing(executor.db()) as conn:
             before=conn.execute("SELECT settings,status FROM leader_control").fetchall()
         with patch.object(identity,"assert_current"),patch.object(executor,"assert_current"),patch.object(executor,"login",return_value="fixture"),patch.object(executor,"verify_account",return_value=self.broker.account),patch.object(executor,"account_state",return_value=([],[])),patch.object(executor.practice_safety,"check",return_value=dict(locked=False)),patch.object(executor,"alert_history",return_value=[]),patch.object(testing,"datetime") as clock,patch("goxtrade.market.calendar_guard.entry_block",return_value=None):
             clock.now.return_value=self.now
-            session=testing.start(["vwap_ema_cross"],"PRAC-FIXTURE",True)
+            session=testing.start(["vwap_ema_cross"],"PRAC-FIXTURE",True,confirmed_quantities=settings["quantities"])
         current=executor.snapshot()[0]
         self.assertTrue(current["enabled"])
-        self.assertEqual(current["quantities"],dict(MNQ=1,MES=3,MYM=3))
+        self.assertEqual(current["quantities"],settings["quantities"])
         self.assertEqual(current["max_trade_loss"],500.)
         self.assertEqual(current["max_run_loss"],500.)
-        self.assertEqual(current["strategy_testing"]["id"],session["id"])
+        self.assertEqual(current["automation"]["id"],session["id"])
         config=read_vwap_ema_config()
-        self.assertEqual((config.entry_mode,config.signal_minutes,config.ema_length,config.ema_source,config.vwap_source),("CONFIRMED",3,9,"close","ohlc4"))
+        self.assertEqual((config.entry_mode,config.signal_minutes,config.ema_length,config.ema_source,config.vwap_source),("REALTIME",5,12,"close","ohlc4"))
         self.assertTrue(config.practice_enabled)
         self.assertFalse(config.leader_enabled)
         self.assertTrue(executor.symbol_enabled("NQ=F",current))
-        self.assertFalse(executor.symbol_enabled("ES=F",current))
-        self.assertFalse(executor.symbol_enabled("YM=F",current))
+        self.assertTrue(executor.symbol_enabled("ES=F",current))
+        self.assertTrue(executor.symbol_enabled("YM=F",current))
         with closing(executor.db()) as conn:
             self.assertEqual(before,conn.execute("SELECT settings,status FROM leader_control").fetchall())
         executor.pause()
@@ -81,9 +85,9 @@ class PracticeSessionTests(unittest.TestCase):
 
     def test_start_rejects_wrong_account_leader_or_missing_confirmation(self):
         for name,confirmed in (("another-account",True),("PRAC-FIXTURE",False)):
-            with self.assertRaises(ValueError):testing.start(["vwap_ema_cross"],name,confirmed)
+            with self.assertRaises(ValueError):testing.start(["vwap_ema_cross"],name,confirmed,confirmed_quantities=None)
         with patch.object(identity,"PROFILE","leader"),self.assertRaises(ValueError):
-            testing.start(["vwap_ema_cross"],"PRAC-FIXTURE",True)
+            testing.start(["vwap_ema_cross"],"PRAC-FIXTURE",True,confirmed_quantities=None)
 
     def test_micro_monitor_uses_selected_micro_candles_trades_and_quote_freshness(self):
         import pandas as pd
@@ -95,6 +99,7 @@ class PracticeSessionTests(unittest.TestCase):
             result=runtime.evaluate_status("NQ=F","VWAP EMA Cross",dict(time=now,is_open=True))
         self.assertEqual(load.call_args.args[:2],("MNQ=F",CONTRACT))
         self.assertEqual(trade.call_args.args,("MNQ=F",CONTRACT))
+        self.assertEqual(trade.call_args.kwargs,{"as_of":now})
         self.assertEqual(result["indicator_snapshot"]["reference_symbol"],"MNQ=F")
         self.assertTrue(result["source_feed_fresh"])
 
@@ -125,10 +130,19 @@ class PracticeStrategyCycleTests(unittest.TestCase):
 
     def prepare(self):
         import pandas as pd
+        from datetime import datetime
         from tests.vwap_fixtures import minutes
         from goxtrade.strategies.strategy_settings import save_vwap_ema_config
         from goxtrade.strategies.vwap_ema_cross import evaluate_vwap_ema_cross
-        now=pd.Timestamp.now(tz="UTC")
+        # Cover a complete futures session regardless of when this test is run.
+        now=pd.Timestamp("2026-10-26T00:21:01Z")
+        class Clock(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                value=now.to_pydatetime()
+                return value.astimezone(tz) if tz else value.replace(tzinfo=None)
+        self.stack.enter_context(patch.object(executor,"datetime",Clock))
+        self.stack.enter_context(patch.object(testing,"datetime",Clock))
         config=save_vwap_ema_config(VwapEmaConfig(practice_enabled=True,enabled_symbols=("MNQ=F",),stop_method="fixed",entry_window_seconds=600))
         source=minutes(start=now.floor("3min")-pd.Timedelta(minutes=141))
         source.attrs["contract_id"]=CONTRACT
@@ -145,7 +159,7 @@ class PracticeStrategyCycleTests(unittest.TestCase):
         self.stack.enter_context(patch.object(executor.entry_confirmation,"check",side_effect=lambda signal,now=None:dict(state="Confirmed",reason="Mocked live revalidation",price=103.)))
         self.stack.enter_context(patch("goxtrade.execution.contracts.contract_for_symbol",return_value=CONTRACT))
         self.stack.enter_context(patch("goxtrade.execution.practice_history.snapshot",return_value=({},[])))
-        self.stack.enter_context(patch("goxtrade.data.strategy_history.latest_trade",side_effect=lambda *args:dict(event_time=pd.Timestamp.now(tz="UTC").isoformat())))
+        self.stack.enter_context(patch("goxtrade.data.strategy_history.latest_trade",side_effect=lambda *args:dict(event_time=now.isoformat())))
         self.stack.enter_context(patch.object(executor,"call",return_value=dict(contracts=[dict(id=CONTRACT,symbolId="F.US.MNQ",activeContract=True)])))
         return self.stack.enter_context(patch.object(executor,"post",return_value=dict(success=True,errorCode=0,orderId=500)))
 

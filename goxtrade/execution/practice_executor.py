@@ -24,6 +24,7 @@ from goxtrade.strategies import entry_confirmation
 from goxtrade.bot import bot_health
 from goxtrade.config.execution_identity import PROFILE, TARGET, assert_other_idle, assert_current
 from goxtrade.strategies.strategy_catalog import order_block as execution_block, crossover_key
+from goxtrade.execution.practice_automation import session_settings, job_session
 
 ACCOUNT_ID = TARGET["id"]
 ACCOUNT_NAME = TARGET["name"]
@@ -50,11 +51,15 @@ def snapshot():
     return json.loads(row[0]), json.loads(row[1]), jobs
 
 
-def control(settings):
+def control(settings, expected_settings=None):
     if settings.get("enabled"):
         assert_current()
     with closing(db()) as conn:
         conn.execute("BEGIN IMMEDIATE")
+        if expected_settings is not None:
+            current=json.loads(conn.execute(f"SELECT settings FROM {PROFILE}_control WHERE id=1").fetchone()[0])
+            if current!=expected_settings:
+                raise ValueError("Execution settings changed during authorization; review and start again")
         if settings.get("enabled"):
             assert_other_idle(conn)
         conn.execute(f"UPDATE {PROFILE}_control SET settings=? WHERE id=1", (json.dumps(settings),))
@@ -65,7 +70,7 @@ def status(message):
     if PROFILE == "leader":
         message = message.replace("Practice", "Leader")
     with closing(db()) as conn:
-        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_strategy_testing=PROFILE=="practice", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
+        conn.execute(f"UPDATE {PROFILE}_control SET status=? WHERE id=1", (json.dumps(dict(message=message, version="accounts-v1", recovery="reconnect-v1", entry_policy="multi-symbol-v1", practice_automation=PROFILE=="practice", account_id=ACCOUNT_ID, updated_at=datetime.now(timezone.utc).isoformat())),))
         detail = "Post-trade cooldown active" if message.startswith("Post-trade cooldown") else message
         critical = any(word in message.lower() for word in ("error", "uncertain", "unconfirmed", "rejected", "manual", "loss lock"))
         bot_audit.emit("executor", "Execution status", detail, severity="warning" if critical else "info", notify=critical, conn=conn)
@@ -101,9 +106,9 @@ def claim(job):
         conn.execute("BEGIN IMMEDIATE")
         assert_other_idle(conn)
         current_settings=json.loads(conn.execute(f"SELECT settings FROM {PROFILE}_control WHERE id=1").fetchone()[0])
-        session_id=(current_settings.get("strategy_testing") or {}).get("id")
-        if session_id or job.get("strategy_testing_session"):
-            if not current_settings.get("enabled") or session_id != job.get("strategy_testing_session") or PROFILE != "practice":
+        session_id=session_settings(current_settings).get("id")
+        if session_id or job_session(job):
+            if not current_settings.get("enabled") or session_id != job_session(job) or PROFILE != "practice":
                 return False
         if conn.execute("SELECT 1 FROM sqlite_master WHERE name='bot_alert_history'").fetchone():
             signal = conn.execute("SELECT record FROM bot_alert_history WHERE id=?",(job["alert_id"],)).fetchone()
@@ -197,7 +202,9 @@ def quote_fresh(result, now):
         return False
 
 
-def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False, strategy_testing=None):
+def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False, strategy_testing=None, automation=None, expected_settings=None):
+    if PROFILE=="practice" and not (automation or strategy_testing):
+        raise ValueError("Practice requires a manager-controlled automation session; legacy direct arming is disabled")
     assert_current()
     if confirmed is not True:
         raise ValueError("Confirm isolated Practice account and Auto OCO Brackets")
@@ -217,12 +224,13 @@ def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_lo
         raise ValueError("Practice must be flat with no orders or unresolved executor jobs")
     if gate["locked"]:
         practice_safety.check(account["balance"], acknowledge=True, account_id=TARGET["gate_id"])
-    if strategy_testing and (PROFILE != "practice" or strategy_testing.get("account_id") != ACCOUNT_ID):
-        raise ValueError("Strategy testing requires the exact Practice account")
+    session=automation or strategy_testing
+    if session and (PROFILE != "practice" or session.get("account_id") != ACCOUNT_ID):
+        raise ValueError("Automation requires the exact Practice account")
     control(dict(enabled=True, after_id=max([r["id"] for r in alert_history(10000)] or [0]),
                  max_trade_loss=float(max_trade_loss), max_run_loss=float(max_run_loss),
                  start_balance=float(account["balance"]), quantities=quantities, enable_mym=enable_mym is True,
-                 **({"strategy_testing":strategy_testing} if strategy_testing else {})))
+                 **({"automation":automation} if automation else {"strategy_testing":strategy_testing} if strategy_testing else {})),expected_settings=expected_settings)
     status("Armed for new signals only")
 
 
@@ -254,8 +262,8 @@ def request_emergency_close(confirmed):
 
 
 def symbol_enabled(symbol, settings):
-    if settings.get("strategy_testing"):
-        return PROFILE == "practice" and symbol == "NQ=F"
+    if session_settings(settings):
+        return PROFILE == "practice" and MICROS.get(symbol,(None,))[0] in session_settings(settings)["policy"]["symbols"]
     return symbol in ("NQ=F", "ES=F") or (symbol == "YM=F" and settings.get("enable_mym") is True)
 
 
@@ -538,8 +546,8 @@ def cycle(token):
     seen = {j["alert_id"] for j in jobs}
     results = read_status()
     manager_selected = None
-    if settings.get("strategy_testing"):
-        from goxtrade.execution.practice_strategy_testing import selection
+    if session_settings(settings):
+        from goxtrade.execution.practice_automation import selection
         manager_selected = selection(settings,history.values(),account,gate,positions,orders,jobs)
     for signal in sorted(history.values(), key=lambda r: r["id"]):
         if manager_selected is not None and signal["id"] not in manager_selected:
@@ -623,7 +631,7 @@ def cycle(token):
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
                    sizing_reason="Overnight: capped at 1 contract" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
                    side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"],
-                   strategy_testing_session=(settings.get("strategy_testing") or {}).get("id"))
+                   automation_session=session_settings(settings).get("id"))
         if not claim(job):
             continue
         try:
@@ -695,11 +703,11 @@ def cycle(token):
                 bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
                 return
             confirmation = entry_confirmation.check(current_signal)
-            if job.get("strategy_testing_session"):
-                from goxtrade.execution.practice_strategy_testing import selection
+            if job_session(job):
+                from goxtrade.execution.practice_automation import selection
                 fresh_settings=snapshot()[0]
-                if (fresh_settings.get("strategy_testing") or {}).get("id") != job["strategy_testing_session"]:
-                    job.update(state="Rejected",error_message="Not submitted: Practice test session changed")
+                if session_settings(fresh_settings).get("id") != job_session(job):
+                    job.update(state="Rejected",error_message="Not submitted: Practice automation session changed")
                     save_job(job)
                     return
                 selected=selection(fresh_settings,fresh_history,fresh_account,fresh_gate,fresh_positions,fresh_orders,
@@ -717,6 +725,14 @@ def cycle(token):
                 save_job(job)
                 return
             payload = build_order({**current_signal,"entry":confirmation["price"]}, contract, payload["size"])
+            if job_session(job):
+                from goxtrade.execution.practice_automation import validate_payload
+                try:
+                    job["planned_risk_usd"]=validate_payload(fresh_settings,selected[signal["id"]],payload,micro,fresh_account["balance"],fresh_gate)
+                except ValueError as error:
+                    job.update(state="Rejected",error_message=f"Not submitted: {error}")
+                    save_job(job)
+                    return
             if (not snapshot()[0].get("enabled") or not execution_schedule()["allow_entry"]
                     or not quote_fresh(read_status().get((signal["symbol"], signal["strategy"]), {}), datetime.now(timezone.utc))
                     or not entry_confirmation.window_open(current_signal)):

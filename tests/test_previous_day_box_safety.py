@@ -11,6 +11,10 @@ from tests.previous_day_box_fixtures import NOW,CONTRACT,candidate,history
 
 
 class BoxSafetyTests(unittest.TestCase):
+    def setUp(self):
+        config=patch("goxtrade.strategies.strategy_settings.read_previous_day_box_config",return_value=PreviousDayBoxConfig())
+        config.start();self.addCleanup(config.stop)
+
     def test_same_capabilities_with_independent_account_permission(self):
         config=PreviousDayBoxConfig()
         self.assertTrue(config.monitor_enabled);self.assertFalse(config.paper_enabled);self.assertFalse(config.practice_enabled)

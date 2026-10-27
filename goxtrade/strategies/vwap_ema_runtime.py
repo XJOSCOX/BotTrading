@@ -24,7 +24,7 @@ def evaluate_status(symbol, strategy, session, allow_new=True):
     contract = contract_for_symbol(source_symbol)
     now = pd.Timestamp(session["time"])
     minutes = load_strategy_minutes(source_symbol, contract, now)
-    tick = latest_trade(source_symbol, contract)
+    tick = latest_trade(source_symbol, contract, as_of=now)
     fresh = bool(tick) and all(
         pd.notna(stamp := pd.to_datetime(tick[field], utc=True, errors="coerce"))
         and 0 <= (now-stamp).total_seconds() <= config.max_data_age_seconds

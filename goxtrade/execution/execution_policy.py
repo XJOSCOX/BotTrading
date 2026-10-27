@@ -21,6 +21,7 @@ class ExecutionPolicy:
     max_per_symbol: int = 1
     max_contracts: int = 4
     requested_quantity: int = 1
+    symbol_quantities: tuple = ()
     max_group_positions: int = 1
     max_group_risk: float = 150.
     max_group_gross: float = 200000.
@@ -61,6 +62,10 @@ class ExecutionPolicy:
                 raise ValueError(f"{name} must be a bounded positive integer")
         if not 1 <= self.requested_quantity <= self.max_contracts <= 4 or self.max_per_symbol != 1:
             raise ValueError("Maximum four contracts; pyramiding is not supported")
+        quantities=dict(self.symbol_quantities)
+        if (len(quantities)!=len(self.symbol_quantities) or not set(quantities)<=set(self.symbols)
+                or any(type(q) is not int or not 1<=q<=4 for q in quantities.values())):
+            raise ValueError("Per-symbol quantities must be unique enabled sizes from one to four")
         for name, upper in (("cooldown_minutes", 1440), ("slippage_ticks", 100)):
             if type(getattr(self, name)) is not int or not 0 <= getattr(self, name) <= upper:
                 raise ValueError(f"Invalid {name}")
@@ -91,7 +96,7 @@ class ExecutionPolicy:
         if not isinstance(values, dict) or set(values)-{f.name for f in fields(cls)}:
             raise ValueError("Unknown manager policy fields")
         copied = dict(values)
-        for name in ("monitoring", "participating", "priority", "symbols", "strategy_budgets"):
+        for name in ("monitoring", "participating", "priority", "symbols", "strategy_budgets", "symbol_quantities"):
             if name in copied:
                 if not isinstance(copied[name], (tuple, list)):
                     raise ValueError("Policy lists must be arrays")

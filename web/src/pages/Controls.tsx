@@ -57,7 +57,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
     });
     if (result) {
       setDirty((previous) => ({ ...previous, policy: false }));
-      setFeedback("Entry policy saved. Run/Pause state unchanged.");
+      setFeedback("Entry policy saved. Pause and Start to authorize changes to a running automation session. Open positions are unchanged.");
     }
   };
   return (

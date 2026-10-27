@@ -191,6 +191,49 @@ prove automated strategy profitability. Wide-stop risk rejections, overnight
 filters, incomplete history, loss locks, calendar expiry and broker restrictions
 remain legitimate reasons not to trade. Do not force a crossover to fill a report.
 
+## Production Path Cleanup: October 26
+
+The experimental adapter was promoted to `practice_automation`. Execution no
+longer has a separate single-strategy test selector. It uses Control Center's
+saved strategies and sizes, with an exact-account Start confirmation binding the
+saved quantities. Legacy API/direct Practice arming cannot bypass the manager.
+Indicator mode, timeframe, EMA length and sources are not reset by Start.
+
+An existing session's frozen limits remain authoritative. The verified-flat
+deployment resumed the previously authorized one-MNQ session without applying
+the pending saved size of three, altering the USD 75 planned-risk ceiling,
+resetting the USD 500 loss baseline, or enabling Leader. New quantities require
+Pause and an explicit Start. Concurrent edits invalidate authorization instead
+of being overwritten. Active maximums and saved settings are displayed separately.
+
+The market worker now performs bounded, read-only seven-day history hydration
+and rolling repairs. At 19:54 CT, the NQ and MNQ contract stores each held 6,900
+real broker minutes; other monitored contracts were also hydrated. No candles
+were synthesized. Session-specific warmups still apply after the evening break.
+Historical downloads do not bypass fresh quotes, signal expiry or risk checks.
+
+The exact final rounded bracket risk, estimated costs and quantity are checked
+again against manager and account headroom before submission. Unknown broker
+outcomes retain durable ownership and cannot be automatically resubmitted.
+Existing persisted session/job field names are read for compatibility, not used
+to launch diagnostics. Manual roundtrip tools, fixtures and replay are not normal
+startup entry paths; their historical evidence and regression tests are retained.
+
+Verification: **621 tests passed in 104.279 seconds**, production frontend build
+passed, and headless desktop/mobile navigation, chart-pixel, authorization-dialog
+and disposable-database Control Center checks passed with no broker orders.
+Two defective tests were isolated from wall-clock session shifts and live account
+permission settings. Local deployment evidence is in
+`data/verification/practice-production-deployment.json` and
+`practice-production-observation.json`.
+
+No automated strategy trade had occurred at that observation. This cleanup does
+not establish trading performance or a completed automated broker lifecycle.
+The reviewed calendar still requires operator maintenance and currently expires
+October 27 at 16:00 CT; it was not auto-approved or bypassed. Planned loss limits
+are not guarantees against slippage. These operational limitations remain visible
+rather than being removed as "test code."
+
 ## Sources
 
 - [CME Micro E-mini expiration](https://www.cmegroup.com/education/courses/micro-e-mini-futures/managing-micro-e-mini-futures-expiration)

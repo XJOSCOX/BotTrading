@@ -225,12 +225,20 @@ class NativeApiTests(unittest.TestCase):
     def test_explicit_authorization_delegates_existing_safety_once_no_retry(self):
         target = api_module.identity.TARGETS["practice"]
         settings = dict(quantities=dict(MNQ=3,MES=2,MYM=1),enable_mym=False)
-        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"])
-        body = dict(name=target["name"],safeguards=True)
+        runtime = dict(updated_at=datetime.now(timezone.utc).isoformat(),account_id=target["id"],practice_automation=True)
+        body = dict(name=target["name"],safeguards=True,quantities=settings["quantities"],strategies=["crt"])
         with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
-                patch.object(practice_executor, "arm", side_effect=RuntimeError("Mocked broker unavailable")) as arm:
-            self.assertEqual(self.post("/api/execution/practice/arm", body).status_code, 503)
-            arm.assert_called_once_with(500,500,True,quantities=settings["quantities"],acknowledge_loss=False,enable_mym=False)
+                patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Mocked broker unavailable")) as start:
+            self.assertEqual(self.post("/api/execution/practice/start", body).status_code, 503)
+            start.assert_called_once_with(["crt"],target["name"],True,confirmed_quantities=settings["quantities"],acknowledge_loss=False)
+
+    def test_retired_practice_start_paths_cannot_bypass_manager(self):
+        target=api_module.identity.TARGETS["practice"]
+        body=dict(name=target["name"],safeguards=True)
+        with patch.object(practice_executor,"arm") as arm:
+            for action in ("arm","strategy-test"):
+                self.assertEqual(self.post('/api/execution/practice/'+action,body).status_code,400)
+            arm.assert_not_called()
 
     def test_startup_and_websocket_only_stream_local_records(self):
         with patch.object(projectx_client,"post",side_effect=AssertionError("No broker calls")) as broker:
