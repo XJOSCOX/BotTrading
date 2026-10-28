@@ -110,6 +110,18 @@ class ContractHistoryTests(unittest.TestCase):
         self.trade(102., self.now+pd.Timedelta(minutes=1, seconds=35))
         self.assertFalse(self.load().iloc[-1]["complete"])
 
+    def test_coverage_boundaries_are_rounded_once_without_finalizing_partial_minutes(self):
+        from unittest.mock import Mock
+        start=Mock()
+        start.ceil.return_value=self.now+pd.Timedelta(minutes=1)
+        end=self.now+pd.Timedelta(minutes=5,seconds=30)
+        for minute in range(6):
+            self.trade(100.,self.now+pd.Timedelta(minutes=minute,seconds=1))
+        with patch.object(feed_coverage,'windows',return_value=[(start,end)]):
+            result=self.load(self.now+pd.Timedelta(minutes=6))
+        self.assertEqual(result['complete'].tolist(),[False,True,True,True,True,False])
+        start.ceil.assert_called_once_with('min')
+
     def test_out_of_order_trades_preserve_event_time_ohlc_and_no_incremental_recount(self):
         self.trade(102., self.now+pd.Timedelta(seconds=30), volume=3.)
         self.trade(100., self.now+pd.Timedelta(seconds=10), received=self.now+pd.Timedelta(seconds=31), volume=2.)

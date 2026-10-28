@@ -86,6 +86,8 @@ def load_strategy_minutes(symbol, contract_id, now, hours=72, refresh=True):
         saved = [dict(row) for row in conn.execute("SELECT time,open,high,low,close,volume,retrieved_at FROM strategy_historical_minutes WHERE symbol=? AND contract_id=? AND time>=? ORDER BY time", (symbol, contract_id, cutoff))]
         from goxtrade.data.feed_coverage import windows
         coverage = windows(conn, symbol, contract_id)
+    # Connection boundaries are invariant across all minute rows in this load.
+    coverage = [(start.ceil("min"), end if end is not None else now) for start, end in coverage]
     by_time = {}
     for row in trades:
         if row.pop("invalid_volume"):
@@ -93,7 +95,7 @@ def load_strategy_minutes(symbol, contract_id, now, hours=72, refresh=True):
         if pd.Timestamp(row["asof_time"]) <= now:
             stamp = pd.Timestamp(row["time"])
             row["complete"] = stamp+pd.Timedelta(minutes=1) <= now and any(
-                stamp >= start.ceil("min") and stamp+pd.Timedelta(minutes=1) <= (end if end is not None else now)
+                stamp >= start and stamp+pd.Timedelta(minutes=1) <= end
                 for start, end in coverage)
             by_time[pd.Timestamp(row["time"])] = row
     for row in saved:

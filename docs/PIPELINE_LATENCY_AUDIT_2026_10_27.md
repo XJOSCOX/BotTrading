@@ -71,6 +71,30 @@ positional rather than pandas first/last, so missing opening/closing values
 are not silently skipped. Volume still requires all source-minute values.
 Nothing changes expiration, momentum, breakout, stop or risk conditions.
 
+## Follow-up history bottleneck
+
+After the first optimization was deployed, four observed CRT status-update
+intervals were 8.926, 8.547, 8.261 and 7.754 seconds. Those are complete monitor
+refresh intervals, not computation-only or order latency. Therefore the pure
+confirmation improvement was not presented as a complete pipeline fix.
+
+An isolated monitor profile using copied genuine runtime rows attributed 7.648s
+of a 9.648s profiled pass to six `load_strategy_minutes` calls. The hot loop
+rounded each connection-window start with pandas Timestamp.ceil for every
+minute/window comparison. The window starts are constant within a load.
+
+The follow-up fix precomputes the same rounded starts and open-window end once
+per connection window. A regression first reproduced six redundant ceil calls
+for six source minutes, then passed with exactly one call and unchanged partial
+first/last-minute completeness flags.
+
+Five-run medians loading the same 3,142 genuine NQ rows from the same isolated
+database at the same frozen clock, refresh=False: **912.60ms before, 173.04ms
+after**. Full DataFrames, availability metadata and attrs compare equal. The
+subsequent isolated monitor profile was approximately 3.2s; its captured snapshot
+and profiling overhead differ from live execution, so it is not an exact live
+before/after latency claim. Live monitoring is rechecked after flat-only rollout.
+
 ## Other stages
 
 - Read-only last-50,000 priced-tick SQL medians: NQ 163.68ms, ES 150.83ms,
@@ -98,6 +122,10 @@ and the archived confirmation result are also equal.
 Full verification: 719 isolated tests passed in 100.859s with zero failures or
 errors, plus the separate production-path assertion (720 total). Provider HTTP
 was blocked in the isolated suite; fixtures did not target the live accounts.
+
+After the coverage-boundary fix, the final complete run passed 720 isolated
+tests in 102.902s with zero failures/errors. Including the separate unchanged
+production-path assertion, verification totals 721 tests.
 
 No complete historical receipt-to-commit-to-evaluation-to-HTTP-to-fill trace
 exists. No such end-to-end latency claim is made. React is outside this worker
