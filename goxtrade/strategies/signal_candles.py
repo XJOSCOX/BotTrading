@@ -15,11 +15,25 @@ def signal_candles(minutes, now, interval=15, strict=False):
         observed = pd.to_datetime(frame["asof_time"], utc=True, errors="coerce")
         frame = frame.loc[frame["asof_time"].isna() | (observed.notna() & observed.le(pd.Timestamp(now)))]
     frame = frame.loc[frame["time"]+pd.Timedelta(minutes=1)<=pd.Timestamp(now)].sort_values("time").drop_duplicates("time",keep="last")
-    rows = []
-    for stamp, group in frame.groupby(frame["time"].dt.floor(f"{interval}min")):
-        expected = pd.date_range(stamp,periods=interval,freq="min")
-        if len(group)!=interval or not group["time"].reset_index(drop=True).equals(pd.Series(expected)):
-            continue
-        rows.append(dict(time=stamp,open=group.iloc[0]["open"],high=group["high"].max(),low=group["low"].min(),
-                         close=group.iloc[-1]["close"],volume=group["volume"].sum(min_count=interval)))
-    return pd.DataFrame(rows,columns=["time","open","high","low","close","volume"])
+    columns = ["time", "open", "high", "low", "close", "volume"]
+    if frame.empty:
+        return pd.DataFrame(columns=columns)
+    frame = frame.assign(_bucket=frame["time"].dt.floor(f"{interval}min"),
+                         _aligned=frame["time"].eq(frame["time"].dt.floor("min")))
+    groups = frame.groupby("_bucket", sort=True)
+    counts = groups.size()
+    first = groups.head(1).set_index("_bucket")
+    last = groups.tail(1).set_index("_bucket")
+    # Unique, aligned minutes with the exact count and endpoints cannot hide gaps.
+    valid = (counts.eq(interval) & groups["_aligned"].all()
+             & first["time"].eq(counts.index)
+             & last["time"].eq(counts.index + pd.Timedelta(minutes=interval-1)))
+    index = counts.index[valid]
+    if index.empty:
+        return pd.DataFrame(columns=columns)
+    return pd.DataFrame(dict(time=index, open=first.loc[index,"open"].to_numpy(),
+                            high=groups["high"].max().loc[index].to_numpy(),
+                            low=groups["low"].min().loc[index].to_numpy(),
+                            close=last.loc[index,"close"].to_numpy(),
+                            volume=groups["volume"].sum(min_count=interval).loc[index].to_numpy()),
+                        columns=columns)
