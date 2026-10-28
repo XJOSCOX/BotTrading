@@ -20,4 +20,9 @@ def execution_schedule(now=None, *, calendar=True):
         overlay = restriction(now)
         if not overlay["allow_entry"]:
             result.update(allow_entry=False, flatten=flatten or overlay["flatten"], reason=overlay["reason"])
+        if result['allow_entry']:
+            from goxtrade.market.economic_calendar import entry_block
+            news = entry_block(now)
+            if news:
+                result.update(allow_entry=False, reason=news)
     return result

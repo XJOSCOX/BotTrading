@@ -3,6 +3,7 @@ import asyncio
 from contextlib import asynccontextmanager
 import hashlib
 import json
+import logging
 import os
 from pathlib import Path
 import secrets
@@ -43,6 +44,23 @@ class Policy(Body):
 class Intervals(Body):
     stop_minutes: Literal[5, 10, 15]
     orb_minutes: Literal[5, 15, 30]
+
+
+class EconomicPolicy(Body):
+    enabled: StrictBool
+    before_minutes: Annotated[StrictInt,Field(ge=0,le=240)]
+    after_minutes: Annotated[StrictInt,Field(ge=0,le=240)]
+    critical_before_minutes: Annotated[StrictInt,Field(ge=0,le=240)]
+    critical_after_minutes: Annotated[StrictInt,Field(ge=0,le=240)]
+    impacts: list[Literal['critical','high','medium','low']]
+    stale_hours: Annotated[StrictInt,Field(ge=1,le=168)]
+
+
+class EconomicEvent(Body):
+    title: Annotated[str,Field(min_length=1,max_length=200)]
+    event_at: Annotated[str,Field(max_length=60)]
+    impact: Literal['critical','high','medium','low']
+    source_url: Annotated[str,Field(max_length=500)]
 
 
 class Credentials(Body):
@@ -130,7 +148,20 @@ def mutation(request: Request, csrf=Depends(session)):
 @asynccontextmanager
 async def lifespan(app):
     # No collector, broker login, order submission or arming in the web lifespan.
-    yield
+    async def calendar_refresh():
+        from goxtrade.market import economic_calendar
+        while True:
+            try:
+                await asyncio.to_thread(economic_calendar.refresh_if_due)
+            except Exception:
+                logging.getLogger(__name__).exception('Economic calendar background refresh failed')
+            await asyncio.sleep(60)
+    task=asyncio.create_task(calendar_refresh())
+    try:
+        yield
+    finally:
+        task.cancel()
+        await asyncio.gather(task,return_exceptions=True)
 
 
 def create_app():
@@ -196,6 +227,34 @@ def create_app():
     @app.get("/api/config", dependencies=[Depends(session)])
     def config():
         return state.configuration()
+
+    @app.get('/api/economic-calendar', dependencies=[Depends(session)])
+    def economic_calendar_view():
+        from goxtrade.market.economic_calendar import snapshot
+        return snapshot()
+
+    @app.post('/api/economic-calendar/settings', dependencies=[Depends(mutation)])
+    def economic_calendar_settings(body: EconomicPolicy):
+        from goxtrade.market.economic_calendar import save_settings
+        save_settings(body.model_dump())
+        return dict(message='Economic event windows saved. Existing positions and Leader unchanged.')
+
+    @app.post('/api/economic-calendar/refresh', dependencies=[Depends(mutation)])
+    def economic_calendar_refresh():
+        from goxtrade.market.economic_calendar import refresh
+        return refresh()
+
+    @app.post('/api/economic-calendar/events', dependencies=[Depends(mutation)])
+    def economic_calendar_add(body: EconomicEvent):
+        from goxtrade.market.economic_calendar import add_event,chicago_time
+        values=body.model_dump(); values['event_at']=chicago_time(values['event_at']).isoformat()
+        return add_event(values)
+
+    @app.delete('/api/economic-calendar/events/{identifier}', dependencies=[Depends(mutation)])
+    def economic_calendar_delete(identifier: str):
+        from goxtrade.market.economic_calendar import delete_event
+        delete_event(identifier)
+        return dict(message='Manual event removed')
 
     @app.get("/api/snapshot", dependencies=[Depends(session)])
     def snapshot():

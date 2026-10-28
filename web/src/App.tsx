@@ -17,6 +17,7 @@ import {
   Bell,
   ArrowUpRight,
   LoaderCircle,
+  CalendarDays,
 } from "lucide-react";
 import { api, ct, type Json } from "./api";
 import { connect, refresh, useLive } from "./store";
@@ -39,9 +40,11 @@ import { MarketReplay } from "./pages/MarketReplay";
 import { Diagnostics } from "./pages/Diagnostics";
 import { SystemControls } from "./SystemControls";
 import { Safeguards } from "./pages/Safeguards";
+import { EconomicCalendar } from "./pages/EconomicCalendar";
 
 const navigation = [
   {name:"Safeguards",id:"safeguards",icon:ShieldCheck,group:"Settings",detail:"Account-specific loss locks and entry-risk limits",component:Safeguards},
+  {name:"Economic Calendar",id:"economic-calendar",icon:CalendarDays,group:"Trading",detail:"Scheduled market events and Practice entry windows",component:EconomicCalendar},
   {
     name: "Market Replay",
     id: "market-replay",

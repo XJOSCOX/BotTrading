@@ -1915,3 +1915,18 @@ dialog.modal::backdrop {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.economic-calendar-layout { display: grid; grid-template-columns: minmax(260px, 320px) minmax(0, 1fr); gap: 28px; margin-top: 24px; }
+.economic-calendar-layout aside { border-right: 1px solid var(--border, #303a32); padding-right: 24px; }
+.economic-calendar-layout form { display: grid; gap: 16px; }
+.economic-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.economic-calendar fieldset { border: 0; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.economic-calendar legend { margin-bottom: 12px; }
+.economic-toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: end; margin-bottom: 18px; }
+.economic-source { display: grid; gap: 5px; padding: 12px 0; border-bottom: 1px solid var(--border, #303a32); font-size: 13px; overflow-wrap: anywhere; }
+.economic-agenda { min-width: 0; }
+.economic-agenda .table-scroll table { min-width: 760px; }
+.economic-agenda td { overflow-wrap: anywhere; }
+.economic-manual { margin-top: 18px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.economic-calendar details { margin-top: 24px; }
+@media (max-width: 1000px) { .economic-calendar-layout { grid-template-columns: minmax(0, 1fr); } .economic-calendar-layout aside { border-right: 0; padding-right: 0; } }
+@media (max-width: 600px) { .economic-manual { grid-template-columns: minmax(0, 1fr); } .economic-toolbar > * { flex: 1 1 140px; } }

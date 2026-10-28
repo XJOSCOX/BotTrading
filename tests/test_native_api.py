@@ -193,6 +193,20 @@ class NativeApiTests(unittest.TestCase):
             arm.assert_not_called()
         self.assertEqual(self.post("/api/policy/practice",{**body,"entry_confirmation_mode":"unsafe"}).status_code,422)
 
+    def test_economic_calendar_configuration_is_local_and_requires_csrf(self):
+        from goxtrade.market import economic_calendar as calendar
+        from goxtrade.execution import leader_execution
+        with patch.object(leader_execution,'command') as leader,patch.object(practice_executor,'arm') as arm,patch.object(calendar.requests,'get',side_effect=AssertionError('No network')):
+            self.assertEqual(self.client.post('/api/economic-calendar/settings',json=calendar.DEFAULTS).status_code,403)
+            response=self.post('/api/economic-calendar/settings',{**calendar.DEFAULTS,'enabled':True})
+            self.assertEqual(response.status_code,200,response.text)
+            response=self.post('/api/economic-calendar/events',dict(title='Fixture CPI',event_at='2026-11-10T07:30',impact='high',source_url='https://www.bls.gov/'))
+            self.assertEqual(response.status_code,200,response.text)
+            row=response.json();self.assertEqual(row['event_at'],'2026-11-10T13:30:00+00:00')
+            self.assertEqual(self.client.get('/api/economic-calendar').status_code,200)
+            self.assertEqual(self.client.delete('/api/economic-calendar/events/'+row['id'],headers=self.headers).status_code,200)
+            leader.assert_not_called();arm.assert_not_called()
+
     def test_single_instrument_selection_survives_explicit_and_legacy_saves(self):
         from goxtrade.bot import bot_controls
         original_leader=bot_controls.read('leader')
