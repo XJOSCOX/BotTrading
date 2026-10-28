@@ -6,7 +6,8 @@ from goxtrade.bot.bot_audit import emit
 from goxtrade.config.execution_identity import PROFILE, TARGETS
 from goxtrade.strategies.strategy_catalog import STRATEGIES, strategy_spec, execution_block
 
-DEFAULTS = dict(symbols=["MNQ", "MES", "MYM"], strategies=["CRT", "Reversal"], cooldown_minutes=5)
+DEFAULTS = dict(symbols=["MNQ", "MES", "MYM"], strategies=["CRT", "Reversal"], cooldown_minutes=5,
+                entry_confirmation_mode="strict")
 
 
 def init(conn):
@@ -21,7 +22,7 @@ def read(profile=None):
     return {**DEFAULTS, **(json.loads(row[0]) if row else {})}
 
 
-def save(symbols, strategies, cooldown_minutes, profile=None):
+def save(symbols, strategies, cooldown_minutes, profile=None, *, entry_confirmation_mode=None):
     selected_profile = profile or PROFILE
     key = TARGETS[profile or PROFILE]["gate_id"]
     if not set(symbols) <= {"MNQ", "MES", "MYM"} or not set(strategies) <= set(STRATEGIES):
@@ -30,7 +31,11 @@ def save(symbols, strategies, cooldown_minutes, profile=None):
         raise ValueError("Cooldown must be 1-60 minutes")
     if any(selected_profile not in strategy_spec(strategy).execution_profiles for strategy in strategies):
         raise ValueError("A selected strategy is not eligible for this execution profile")
-    record = dict(symbols=list(symbols), strategies=list(strategies), cooldown_minutes=cooldown_minutes)
+    mode = entry_confirmation_mode if entry_confirmation_mode is not None else read(selected_profile)["entry_confirmation_mode"]
+    if mode not in ("strict", "standard") or selected_profile == "leader" and mode != "strict":
+        raise ValueError("Standard confirmation is available for Practice only")
+    record = dict(symbols=list(symbols), strategies=list(strategies), cooldown_minutes=cooldown_minutes,
+                  entry_confirmation_mode=mode)
     with closing(connect()) as conn:
         init(conn)
         conn.execute("INSERT OR REPLACE INTO bot_controls VALUES(?,?)", (key,json.dumps(record)))

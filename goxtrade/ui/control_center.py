@@ -30,12 +30,18 @@ def render():
                 quantities = {name: column.number_input(name+" contracts", 1, 4, int(settings.get("quantities", {}).get(name, 2)), key="controls_qty_"+profile+name)
                               for name, column in zip(("MNQ", "MES", "MYM"), columns)}
                 cooldown = st.number_input("Re-enter after a confirmed close (minutes)", 1, 60, int(policy["cooldown_minutes"]), key="controls_cooldown_"+profile)
+                mode = policy["entry_confirmation_mode"]
+                if profile == "practice":
+                    mode = st.selectbox("Legacy strategy entry confirmation", ["strict", "standard"],
+                                        index=["strict", "standard"].index(mode),
+                                        format_func=lambda value: "Strict (15m + 5m + 1m)" if value == "strict" else "Standard (15m + 5m)")
                 if st.form_submit_button("Save execution policy", icon=":material/save:"):
                     try:
                         if profile == "leader":
                             leader_execution.command("configure", quantities=quantities, strategies=strategies, cooldown=cooldown, enable_mym=mym)
                         else:
-                            bot_controls.save(["MNQ", "MES"]+(["MYM"] if mym else []), strategies, cooldown, profile="practice")
+                            bot_controls.save(["MNQ", "MES"]+(["MYM"] if mym else []), strategies, cooldown, profile="practice",
+                                              entry_confirmation_mode=mode)
                             practice_executor.configure(quantities, mym)
                         st.success("Policy saved. Run/Pause state unchanged.")
                     except (ValueError, RuntimeError, OSError):

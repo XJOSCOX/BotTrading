@@ -708,6 +708,7 @@ def cycle(token):
                    candle_time=signal.get("candle_time"),direction=signal.get("direction", signal["signal"]),
                    initial_risk_usd=abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"],
                    signal_entry=signal["entry"], entry_confirmation=confirmation["reason"], confirmed_entry=confirmation["price"],
+                   entry_confirmation_mode=confirmation.get("entry_confirmation_mode"),
                    requested_quantity=settings["quantities"][micro], stop_ticks=abs(payload["stopLossBracket"]["ticks"]),
                    sizing_reason=f"Overnight: configured maximum {overnight_policy.quantity(settings['quantities'][micro])}; manager/risk selected {payload['size']}" if overnight_policy.overnight() else ("Additional symbol: capped at 1 contract" if positions else "First position: selected quantity"),
                    side=payload["side"], state="Intent", sent_at=time.time(), tag=payload["customTag"],
@@ -825,7 +826,9 @@ def cycle(token):
                 job.update(state="Rejected", error_message="Not submitted: pause, schedule or freshness changed at send boundary")
                 save_job(job)
                 return
-            job.update(entry_confirmation=confirmation["reason"],confirmed_entry=confirmation["price"],stop_ticks=abs(payload["stopLossBracket"]["ticks"]))
+            job.update(entry_confirmation=confirmation["reason"],confirmed_entry=confirmation["price"],
+                       entry_confirmation_mode=confirmation.get("entry_confirmation_mode"),
+                       stop_ticks=abs(payload["stopLossBracket"]["ticks"]))
             job["initial_risk_usd"] = abs(payload["stopLossBracket"]["ticks"])*MICROS[signal["symbol"]][2]*MICROS[signal["symbol"]][3]*payload["size"]
             bot_audit.emit(f"confirmation:{signal['id']}", "Entry confirmed", confirmation["reason"], signal["id"])
             assert_current()

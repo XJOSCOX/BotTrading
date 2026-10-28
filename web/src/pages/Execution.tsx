@@ -231,6 +231,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                 "Symbol",
                 "Qty",
                 "State",
+                "Confirmation",
                 "Actual fill",
                 "Protection",
                 "Reason",
@@ -250,6 +251,7 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
                 >
                   {j.state}
                 </Badge>,
+                j.entry_confirmation_mode || "--",
                 price(j.fill_price),
                 j.protected ? "Verified" : "Not verified",
                 j.error_message || j.close_reason || "--",

@@ -37,6 +37,7 @@ class Policy(Body):
     cooldown: Annotated[StrictInt, Field(ge=1, le=60)]
     enable_mym: StrictBool
     symbols: list[Literal['MNQ','MES','MYM']] | None = None
+    entry_confirmation_mode: Literal['strict','standard'] | None = None
 
 
 class Intervals(Body):
@@ -257,9 +258,12 @@ def create_app():
         if len(set(symbols))!=len(symbols) or ('MYM' in symbols)!=body.enable_mym:
             raise ValueError('Choose unique instruments and matching MYM activation')
         if profile == "leader":
+            if body.entry_confirmation_mode not in (None, "strict"):
+                raise ValueError("Standard confirmation is available for Practice only")
             leader_execution.command("configure", quantities=body.quantities, strategies=body.strategies, cooldown=body.cooldown, enable_mym=body.enable_mym,symbols=symbols)
         else:
-            bot_controls.save(symbols, body.strategies, body.cooldown, profile="practice")
+            bot_controls.save(symbols, body.strategies, body.cooldown, profile="practice",
+                              entry_confirmation_mode=body.entry_confirmation_mode)
             practice_executor.configure(body.quantities, body.enable_mym)
         state.CACHE.invalidate()
         return dict(message="Policy saved. Run/Pause state unchanged.")

@@ -11,6 +11,7 @@ from goxtrade.data.price_ticks import valid_price
 from goxtrade.strategies.signal_candles import signal_candles
 
 PROFILE=os.getenv("GOX_EXECUTION_PROFILE","practice")
+LEGACY_STRATEGIES = {"crt", "reversal", "orb", "vwap_reclaim", "ema_pullback"}
 
 
 def chart_history(*args,**kwargs):
@@ -32,7 +33,7 @@ def window_open(signal, now=None, *, profile=None):
     return bool(signal.get("signal_minutes") == 15 and pd.notna(start) and 0 <= (now-start).total_seconds() < seconds)
 
 
-def evaluate(signal, minutes, price, now, *, profile=None):
+def evaluate(signal, minutes, price, now, *, profile=None, mode="strict"):
     if signal.get("entry_policy") == "previous-box-v1":
         from goxtrade.strategies.previous_day_box import evaluate_previous_day_box, validate_entry
         from goxtrade.strategies.previous_day_box_config import PreviousDayBoxConfig
@@ -46,9 +47,13 @@ def evaluate(signal, minutes, price, now, *, profile=None):
         return dict(state="Confirmed",reason="Original completed box reversal revalidated at executable price; stop retained",price=price,history_complete=True)
     if signal.get("entry_policy") == "indicator-event-v1":
         return evaluate_indicator_entry(signal, minutes, price, now)
+    if mode not in ("strict", "standard"):
+        raise ValueError("Unsupported entry confirmation mode")
+    mode = mode if (profile or PROFILE) == "practice" and signal.get("strategy_id") in LEGACY_STRATEGIES else "strict"
     history_complete = False
     def result(state, reason):
-        return dict(state=state, reason=reason, price=price, history_complete=history_complete)
+        return dict(state=state, reason=reason, price=price, history_complete=history_complete,
+                    entry_confirmation_mode=mode)
     if not window_open(signal, now,profile=profile) or signal.get("status") != "Active":
         return result("Cancelled", "15m setup expired or inactive")
     if signal.get("signal") not in ("LONG", "SHORT"):
@@ -62,15 +67,15 @@ def evaluate(signal, minutes, price, now, *, profile=None):
         return result("Waiting", "Entry levels or live price unavailable")
     one = signal_candles(minutes,now,1)
     five = signal_candles(minutes,now,5)
-    if len(one)<3 or len(five)<2:
+    if (mode == "strict" and len(one)<3) or len(five)<2:
         return result("Waiting", "Need complete 1m and 5m candles")
     recent = one.tail(3)
-    if (recent.iloc[-1]["time"] != now.floor("min")-pd.Timedelta(minutes=1)
-            or not recent["time"].diff().iloc[1:].eq(pd.Timedelta(minutes=1)).all()
+    if ((mode == "strict" and (recent.iloc[-1]["time"] != now.floor("min")-pd.Timedelta(minutes=1)
+            or not recent["time"].diff().iloc[1:].eq(pd.Timedelta(minutes=1)).all()))
             or five.iloc[-1]["time"] != now.floor("5min")-pd.Timedelta(minutes=5)
             or five.iloc[-1]["time"]-five.iloc[-2]["time"] != pd.Timedelta(minutes=5)):
         return result("Waiting", "1m/5m history delayed or incomplete")
-    for frame in (recent,five.tail(2)):
+    for frame in ((recent,five.tail(2)) if mode == "strict" else (five.tail(2),)):
         values = frame[["open","high","low","close"]]
         if not values.map(lambda x: math.isfinite(x) and x>0).all().all():
             return result("Waiting", "Invalid confirmation candles")
@@ -92,6 +97,8 @@ def evaluate(signal, minutes, price, now, *, profile=None):
     support = (last5["close"]>last5["open"] and last5["close"]>prev5["close"]) if long else (last5["close"]<last5["open"] and last5["close"]<prev5["close"])
     if not support:
         return result("Waiting", "5m candle body and close-to-close momentum do not support direction")
+    if mode == "standard":
+        return result("Confirmed", f"Standard: completed 5m directional body and momentum at {last5['time'].isoformat()}; live {price:.2f}")
     prev,last = one.iloc[-2],one.iloc[-1]
     if last["time"] < start:
         return result("Waiting", "Awaiting a completed 1m trigger after the 15m setup")
@@ -196,7 +203,11 @@ def check(signal, now=None):
             signal = {**signal, "_validation_sequence": tick["id"],
                       "_post_detection_low": bounds[0] if bounds[0] is not None else price,
                       "_post_detection_high": bounds[1] if bounds[1] is not None else price}
-        result = evaluate(signal,source if source is not None else chart_history(signal["symbol"]),price,now) if fresh else dict(state="Waiting",reason="Fresh index trade required",price=None)
+        mode = "strict"
+        if PROFILE == "practice" and signal.get("strategy_id") in LEGACY_STRATEGIES:
+            from goxtrade.bot import bot_controls
+            mode = bot_controls.read("practice")["entry_confirmation_mode"]
+        result = evaluate(signal,source if source is not None else chart_history(signal["symbol"]),price,now,mode=mode) if fresh else dict(state="Waiting",reason="Fresh index trade required",price=None)
         conn.execute("INSERT OR REPLACE INTO entry_confirmations VALUES (?,?,?,?)",(PROFILE,signal["id"],result["state"],result["reason"]))
         conn.commit()
     return result

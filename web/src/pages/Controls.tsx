@@ -54,6 +54,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
       quantities: draft.quantities,
       cooldown: Number(draft.cooldown_minutes),
       enable_mym: draft.enable_mym,
+      entry_confirmation_mode: profile === "practice" ? (draft.entry_confirmation_mode || "strict") : "strict",
       symbols: [
         ...(draft.symbols || []).filter((s: string) => s !== "MYM"),
         ...(draft.enable_mym ? ["MYM"] : []),
@@ -62,7 +63,7 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
     if (result) {
       setDirty((previous) => ({ ...previous, policy: false }));
       setFeedback(
-        "Entry policy saved. Pause and Start to authorize changes to a running automation session. Open positions are unchanged.",
+        "Entry policy saved. Confirmation mode applies to subsequent entry checks; other session changes require Pause and Start. Open positions are unchanged.",
       );
     }
   };
@@ -198,6 +199,13 @@ export function Controls({ config, live, profile, act, busy }: PageProps) {
                 </Field>
               ))}
             </div>
+            {profile === "practice" && <Field label="Legacy strategy entry confirmation">
+              <select value={draft.entry_confirmation_mode || "strict"}
+                onChange={(e) => setDraft({ ...draft, entry_confirmation_mode: e.target.value })}>
+                <option value="strict">Strict (15m + 5m + 1m)</option>
+                <option value="standard">Standard (15m + 5m)</option>
+              </select>
+            </Field>}
             <Field label="Re-enter after a confirmed close (minutes)">
               <input
                 type="number"

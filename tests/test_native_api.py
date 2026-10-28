@@ -177,6 +177,22 @@ class NativeApiTests(unittest.TestCase):
             configure.assert_called_once_with(dict(MNQ=3,MES=2,MYM=1),False)
             arm.assert_not_called()
 
+    def test_confirmation_mode_persists_without_arming_or_changing_leader(self):
+        from goxtrade.bot import bot_controls
+        from goxtrade.execution import leader_execution
+        leader = bot_controls.read("leader")
+        body = dict(strategies=["CRT"], quantities=dict(MNQ=3,MES=2,MYM=1),
+                    cooldown=9, enable_mym=False, entry_confirmation_mode="standard")
+        with patch.object(practice_executor,"arm") as arm, patch.object(leader_execution,"command") as command:
+            response = self.post("/api/policy/practice", body)
+            self.assertEqual(response.status_code,200,response.text)
+            self.assertEqual(bot_controls.read("practice")["entry_confirmation_mode"],"standard")
+            self.assertEqual(bot_controls.read("leader"),leader)
+            self.assertEqual(self.post("/api/policy/leader",body).status_code,400)
+            command.assert_not_called()
+            arm.assert_not_called()
+        self.assertEqual(self.post("/api/policy/practice",{**body,"entry_confirmation_mode":"unsafe"}).status_code,422)
+
     def test_single_instrument_selection_survives_explicit_and_legacy_saves(self):
         from goxtrade.bot import bot_controls
         original_leader=bot_controls.read('leader')

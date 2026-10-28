@@ -97,6 +97,8 @@ def run():
                 for symbol,size in dict(MNQ=4,MES=1,MYM=3).items():
                     page.get_by_label(symbol+" contracts").fill(str(size))
                 page.get_by_label("Re-enter after a confirmed close (minutes)").fill("19")
+                if profile == "practice":
+                    page.get_by_label("Legacy strategy entry confirmation").select_option("standard")
                 expect(page.locator(".control-save-status")).to_contain_text("Unsaved changes")
                 # A reconnect refresh must not replace operator edits.
                 page.evaluate("window.dispatchEvent(new Event('gox-connected'))")
@@ -106,6 +108,10 @@ def run():
                 verify(["Reversal","ORB"],False,dict(MNQ=4,MES=1,MYM=3),19)
                 page.reload()
                 verify(["Reversal","ORB"],False,dict(MNQ=4,MES=1,MYM=3),19)
+                if profile == "practice":
+                    expect(page.get_by_label("Legacy strategy entry confirmation")).to_have_value("standard")
+                else:
+                    expect(page.get_by_label("Legacy strategy entry confirmation")).to_have_count(0)
                 saved=state.configuration()
                 assert saved["policies"][profile]["strategies"]==["ORB","Reversal"]
                 assert saved["execution_settings"][profile]["quantities"]==dict(MNQ=4,MES=1,MYM=3)
