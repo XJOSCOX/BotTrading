@@ -241,6 +241,14 @@ def quote_fresh(result, now):
         return False
 
 
+def entry_window_history(history, now=None):
+    # Active watch exits can outlive entry eligibility; they are not new exposure.
+    if PROFILE != "practice":
+        return list(history)
+    now = now or datetime.now(timezone.utc)
+    return [row for row in history if entry_confirmation.window_open(row, now, profile=PROFILE)]
+
+
 def arm(max_trade_loss, max_run_loss, confirmed, quantities=None, acknowledge_loss=False, enable_mym=False, strategy_testing=None, automation=None, expected_settings=None):
     if PROFILE=="practice" and not (automation or strategy_testing):
         raise ValueError("Practice requires a manager-controlled automation session; legacy direct arming is disabled")
@@ -652,7 +660,7 @@ def cycle(token):
             continue
         # Conflicting active strategies on the same index do not produce an order.
         if any(r["status"] == "Active" and r["symbol"] == signal["symbol"] and r["signal"] != signal["signal"]
-               and bot_controls.enabled(r["symbol"],r["strategy"]) for r in history.values()):
+               and bot_controls.enabled(r["symbol"],r["strategy"]) for r in entry_window_history(history.values())):
             bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", "Conflicting active strategy direction", signal["id"])
             continue
         micro, symbol_id, _, _ = MICROS[signal["symbol"]]
@@ -675,7 +683,7 @@ def cycle(token):
             bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
             continue
         enabled = {r["strategy"] for r in history.values() if bot_controls.enabled(signal["symbol"], r["strategy"])}
-        blocked = overnight_policy.entry_block(signal, history.values(), enabled, positions, orders, jobs, contract["id"])
+        blocked = overnight_policy.entry_block(signal, entry_window_history(history.values()), enabled, positions, orders, jobs, contract["id"])
         if blocked:
             bot_audit.emit(f"decision:{signal['id']}", "Entry blocked", blocked, signal["id"])
             continue
@@ -758,12 +766,12 @@ def cycle(token):
             fresh_history = alert_history(10000)
             if any(r.get("status") == "Active" and r.get("symbol") == signal["symbol"]
                    and r.get("signal") != current_signal.get("signal")
-                   and bot_controls.enabled(r["symbol"], r["strategy"]) for r in fresh_history):
+                   and bot_controls.enabled(r["symbol"], r["strategy"]) for r in entry_window_history(fresh_history, now)):
                 job.update(state="Rejected", error_message="Not submitted: conflicting strategy appeared during preflight")
                 save_job(job)
                 return
             enabled = {r["strategy"] for r in fresh_history if bot_controls.enabled(signal["symbol"], r["strategy"])}
-            blocked = overnight_policy.entry_block(current_signal, fresh_history, enabled, fresh_positions, fresh_orders, fresh_jobs, contract["id"], own_alert=job["alert_id"])
+            blocked = overnight_policy.entry_block(current_signal, entry_window_history(fresh_history), enabled, fresh_positions, fresh_orders, fresh_jobs, contract["id"], own_alert=job["alert_id"])
             if blocked or payload["size"] > overnight_policy.quantity(payload["size"]):
                 job.update(state="Rejected", error_message=f"Not submitted: {blocked or 'overnight size cap changed during preflight'}")
                 save_job(job)

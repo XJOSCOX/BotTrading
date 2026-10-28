@@ -146,3 +146,27 @@ class SubmissionRaceTests(unittest.TestCase):
             e.cycle("mock")
             post.assert_not_called()
         self.assertIn("conflicting", e.snapshot()[2][0]["error_message"])
+
+    def test_expired_watch_only_opposite_does_not_veto_entry(self):
+        signal = self.setup_candidate()
+        opposite = dict(signal, id=4, signal="SHORT", strategy="Reversal")
+        with patch.object(e, "alert_history", return_value=[signal, opposite]), \
+             patch.object(e.entry_confirmation, "window_open", side_effect=lambda row, *a, **kw: row["id"] != 4), \
+             patch.object(e, "post", return_value=dict(success=True, orderId=500)) as post, \
+             patch("goxtrade.strategies.overnight_policy.entry_block") as overnight:
+            def check_overnight(_signal, history, *args, **kwargs):
+                self.assertNotIn(4, [row["id"] for row in history])
+                return None
+            overnight.side_effect = check_overnight
+            e.cycle("mock")
+            post.assert_called_once()
+            self.assertEqual(overnight.call_count, 2)
+
+    def test_expired_watch_only_opposite_during_preflight_does_not_veto_entry(self):
+        signal = self.setup_candidate()
+        opposite = dict(signal, id=4, signal="SHORT", strategy="Reversal")
+        with patch.object(e, "alert_history", side_effect=[[signal], [signal], [signal, opposite]]), \
+             patch.object(e.entry_confirmation, "window_open", side_effect=lambda row, *a, **kw: row["id"] != 4), \
+             patch.object(e, "post", return_value=dict(success=True, orderId=500)) as post:
+            e.cycle("mock")
+            post.assert_called_once()
