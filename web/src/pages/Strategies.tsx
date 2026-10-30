@@ -33,8 +33,8 @@ export function Strategies({ config, live, profile, act, busy }: PageProps) {
     active: Json[] = live.alerts.filter((a: Json) => a.status === "Active");
   active.sort(
     (a, b) =>
-      Number(["Open", "Closing"].includes(byId.get(b.id)?.state)) -
-        Number(["Open", "Closing"].includes(byId.get(a.id)?.state)) ||
+      Number(byId.get(b.id)?.display_state === "In Trade") -
+        Number(byId.get(a.id)?.display_state === "In Trade") ||
       b.id - a.id,
   );
   const names: string[] = config.strategies.map((spec: Json) => spec.name);
@@ -405,12 +405,13 @@ function Alert({
   decision?: Json;
   profile: string;
 }) {
-  const entered = !!job && ["Open", "Closing"].includes(job.state),
+  const entered = job?.display_state === "In Trade",
+    unverified = !!job && ["Open", "Closing"].includes(job.state) && !entered,
     pending = !!job && ["Intent", "Submitted", "Unknown"].includes(job.state),
     last = live.prices[row.symbol]?.price;
   const watchOnly =
-    !entered && !pending && !job?.fill_price && row.status === "Active";
-  const hypothetical = !entered && !pending && !job?.fill_price;
+    !entered && !unverified && !pending && !job?.fill_price && row.status === "Active";
+  const hypothetical = !entered && !unverified && !pending && !job?.fill_price;
   const outcome = row.watch_outcome || {};
   const completedWatch =
     hypothetical && ["WIN", "LOSS", "BREAKEVEN"].includes(outcome.state);
@@ -424,7 +425,7 @@ function Alert({
         ? completedWatch
           ? row.exit_price
           : null
-        : last,
+        : unverified || age(live.prices[row.symbol]?.event_time) > 15 ? null : last,
     move =
       mark != null && entry != null
         ? (mark - entry) * (row.signal === "LONG" ? 1 : -1)
@@ -454,6 +455,8 @@ function Alert({
         >
           {entered
             ? "IN TRADE"
+            : unverified
+              ? job?.display_state === "Reconciliation needed" ? "RECONCILIATION NEEDED" : "BROKER STATUS UNVERIFIED"
             : pending
               ? job?.state
               : row.status === "Active"

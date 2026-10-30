@@ -39,6 +39,27 @@ def read_records(conn, tables, table, order="rowid DESC", limit=1000):
     return [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {table} ORDER BY {order} LIMIT ?", (limit,))]
 
 
+def job_display_state(job, health, account_id, now=None):
+    """Presentation only: an old job cannot establish current broker exposure."""
+    if job.get("state") not in ("Open", "Closing"):
+        return job.get("state")
+    try:
+        updated = datetime.fromisoformat(health["updated_at"].replace("Z", "+00:00"))
+        seconds = ((now or datetime.now(timezone.utc))-updated).total_seconds()
+        if health.get("error") or not 0 <= seconds <= 30 or not isinstance(health.get("positions"), list):
+            return "Unverified"
+    except (KeyError, TypeError, ValueError):
+        return "Unverified"
+    if job.get("account_id") != account_id:
+        return "Unverified"
+    matched = any(p.get("accountId") == account_id
+                  and p.get("contractId") == job.get("contract_id")
+                  and p.get("size") == job.get("quantity")
+                  and p.get("type") == job.get("side", -2)+1
+                  for p in health["positions"] if isinstance(p, dict))
+    return "In Trade" if matched else "Reconciliation needed"
+
+
 def profile_state(conn, tables, profile):
     settings, runtime, history = {}, {}, {}
     table = profile+"_control"
@@ -52,6 +73,11 @@ def profile_state(conn, tables, profile):
         row = conn.execute(f"SELECT record FROM {profile}_history_status WHERE id=1").fetchone()
         history = json.loads(row[0]) if row else {}
     target = identity.TARGETS[profile]
+    health = {}
+    if "bot_health" in tables:
+        row = conn.execute("SELECT record FROM bot_health WHERE id=?", (target["gate_id"],)).fetchone()
+        health = json.loads(row[0]) if row else {}
+    jobs = [{**job, "display_state": job_display_state(job, health, target["id"])} for job in jobs]
     if history.get("account_id") not in (None, target["id"]):
         history = dict(error=True)
     gate = {}

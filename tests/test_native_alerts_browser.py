@@ -20,7 +20,7 @@ def run():
             data = response.json()
             data["alerts"] = [dict(id=i, symbol="NQ=F", strategy="CRT", signal="LONG",
                                    status="Active", entry=100, stop=90, target=120)
-                              for i in (42, 43, 44)]
+                              for i in (42, 43, 44, 50, 51)]
             data["alerts"] += [
                 dict(id=45, symbol="NQ=F", strategy="CRT", signal="LONG", status="Closed", entry=100,
                      exit_price=110, exit_time="2026-10-27T02:00:00Z", exit_reason="Trailing stop reached"),
@@ -35,8 +35,10 @@ def run():
                 alert["watch_outcome"] = watch_outcome(alert)
             data["events"] = []
             for profile, record in data["profiles"].items():
-                record["jobs"] = [dict(alert_id=44, state="Open", fill_price=100, quantity=1, symbol="MNQ")]
-                record["execution_alert_ids"] = [44, 49]
+                record["jobs"] = [dict(alert_id=44, state="Open", display_state="In Trade", fill_price=100, quantity=1, symbol="MNQ"),
+                                  dict(alert_id=50, state="Open", display_state="Unverified", fill_price=100, quantity=1, symbol="MNQ"),
+                                  dict(alert_id=51, state="Open", display_state="Reconciliation needed", fill_price=100, quantity=1, symbol="MNQ")]
+                record["execution_alert_ids"] = [44, 49, 50, 51]
                 record["trades"] = [dict(alert_id=49, strategy="Executed-only strategy", symbol="MNQ", direction="LONG",
                                          quantity=1, exit_price=110, costs=1, net=19, closed_at="2026-10-27T02:00:00Z")]
                 record["entry_decisions"] = {
@@ -49,6 +51,10 @@ def run():
         page.goto(base + "/#strategies")
         for profile in ("practice", "leader"):
             page.get_by_label("Account view").select_option(profile)
+            expect(page.get_by_text("IN TRADE", exact=True)).to_have_count(1)
+            expect(page.get_by_text("BROKER STATUS UNVERIFIED", exact=True)).to_have_count(1)
+            expect(page.get_by_text("RECONCILIATION NEEDED", exact=True)).to_have_count(1)
+            expect(page.locator(".alert-item").filter(has_text="#50")).not_to_contain_text("pts")
             notes = page.locator(".entry-block")
             expect(notes).to_have_count(2)
             expect(notes.filter(has_text=f"{profile}: overnight spread")).to_have_count(1)
