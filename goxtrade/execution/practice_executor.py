@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from threading import Event
 
 from goxtrade.data.live_store import connect
-from goxtrade.execution.live_accounts import quantities_for, copy_role
+from goxtrade.execution.live_accounts import quantities_for, copy_role, AccountVerificationError
 from goxtrade.execution.projectx_client import post, login
 from goxtrade.bot.signal_lifecycle import alert_history
 from goxtrade.bot.bot_monitor import read_status
@@ -214,9 +214,14 @@ def call(path, payload, token):
 def verify_account(token):
     accounts = call("/api/Account/search", {"onlyActiveAccounts": False}, token)["accounts"]
     account = next((a for a in accounts if a.get("id") == ACCOUNT_ID), {})
-    if (account.get("name") != ACCOUNT_NAME or account.get("simulated") is not True
-            or account.get("canTrade") is not True or copy_role(account) != TARGET["role"]):
-        raise RuntimeError("Execution account identity or eligibility check failed")
+    checks = dict(account_found=bool(account))
+    if account:
+        checks.update(name_matches=account.get("name") == ACCOUNT_NAME,
+                      simulated=account.get("simulated") is True,
+                      can_trade=account.get("canTrade") is True,
+                      role_matches=copy_role(account) == TARGET["role"])
+    if not all(checks.values()):
+        raise AccountVerificationError(ACCOUNT_ID, checks)
     return account
 
 

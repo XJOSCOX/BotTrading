@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, StrictBool, Strict
 
 from goxtrade.api import state
 from goxtrade.config import execution_identity as identity
+from goxtrade.execution.live_accounts import AccountVerificationError
 from goxtrade.paths import ROOT
 
 PORT = int(os.environ.get("GOX_NATIVE_PORT", "8504"))
@@ -198,6 +199,11 @@ def create_app():
     @app.exception_handler(ValueError)
     async def value_error(request, error):
         return JSONResponse({"detail": str(error)[:400]}, status_code=400)
+
+    @app.exception_handler(AccountVerificationError)
+    async def account_verification_error(request, error):
+        return JSONResponse(dict(detail=str(error), code="execution_account_verification_failed",
+                                 account_id=error.account_id, checks=error.checks), status_code=400)
 
     @app.exception_handler(Exception)
     async def unexpected(request, error):
@@ -417,16 +423,7 @@ def create_app():
     @app.post("/api/execution/{profile}/{action}", dependencies=[Depends(mutation)])
     async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor", "start"], body: Authorization):
         async with app.state.action_lock:
-            try:
-                return await asyncio.to_thread(execute, profile, action, body)
-            except RuntimeError as error:
-                if str(error) != "Execution account identity or eligibility check failed":
-                    raise
-                raise ValueError(
-                    "The saved execution account failed broker identity or trading eligibility verification. "
-                    "Review the configured account before starting; account replacement requires flat accounts "
-                    "with no working orders. Execution was not enabled."
-                ) from error
+            return await asyncio.to_thread(execute, profile, action, body)
 
     @app.get("/api/services", dependencies=[Depends(session)])
     def service_status():

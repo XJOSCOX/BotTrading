@@ -8,6 +8,21 @@ SETTINGS = DATA_DIR / "live_preferences.json"
 COPY_PROFILE = CONFIG_DIR / "copy_accounts.json"
 
 
+class AccountVerificationError(RuntimeError):
+    """Safe, structured diagnostics derived from the configured broker identity."""
+
+    def __init__(self, account_id, checks):
+        self.account_id = account_id
+        self.checks = checks
+        labels = dict(account_found="account not returned by broker",
+                      name_matches="broker name differs from saved identity",
+                      simulated="broker has not confirmed a simulated account",
+                      can_trade="broker reports trading unavailable",
+                      role_matches="copier role differs from saved role")
+        failures = [labels[key] for key, passed in checks.items() if not passed]
+        super().__init__(f"Configured execution account {account_id}: " + "; ".join(failures))
+
+
 def copy_role(account):
     from goxtrade.config import execution_identity
     if execution_identity.ACCOUNT_FILE.exists():

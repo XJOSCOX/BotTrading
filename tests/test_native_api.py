@@ -322,11 +322,13 @@ class NativeApiTests(unittest.TestCase):
             start.assert_called_once_with(["crt"],target["name"],True,confirmed_quantities=settings["quantities"],acknowledge_loss=False)
 
         with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
-                patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Execution account identity or eligibility check failed")) as start:
+                patch("goxtrade.execution.practice_automation.start", side_effect=api_module.AccountVerificationError(target['id'],dict(account_found=True,can_trade=False))) as start:
             response = self.post("/api/execution/practice/start", body)
             self.assertEqual(response.status_code, 400)
-            self.assertIn("trading eligibility", response.json()["detail"])
-            self.assertIn("Execution was not enabled", response.json()["detail"])
+            self.assertIn("broker reports trading unavailable", response.json()["detail"])
+            self.assertEqual(response.json()['account_id'],target['id'])
+            self.assertEqual(response.json()['code'],'execution_account_verification_failed')
+            self.assertEqual(response.json()['checks'],dict(account_found=True,can_trade=False))
             start.assert_called_once()
 
     def test_retired_practice_start_paths_cannot_bypass_manager(self):

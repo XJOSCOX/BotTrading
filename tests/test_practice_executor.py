@@ -106,6 +106,29 @@ class PracticeTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     e.verify_account("test")
 
+    def test_verification_uses_configured_identity_and_actual_broker_checks(self):
+        for number, name in [(71,'PRAC-FIXTURE-A'),(83,'PRAC-FIXTURE-B')]:
+            account = dict(id=number,name=name,simulated=True,canTrade=True)
+            with patch.object(e,'ACCOUNT_ID',number),patch.object(e,'ACCOUNT_NAME',name), \
+                    patch.object(e,'copy_role',return_value=e.TARGET['role']), \
+                    patch.object(e,'call',return_value=dict(accounts=[account])):
+                self.assertEqual(e.verify_account('fixture'),account)
+                for key, value, check in [('canTrade',False,'can_trade'),('simulated',False,'simulated'),
+                                          ('name','DIFFERENT','name_matches')]:
+                    with patch.object(e,'call',return_value=dict(accounts=[{**account,key:value}])):
+                        with self.assertRaises(e.AccountVerificationError) as caught:
+                            e.verify_account('fixture')
+                        self.assertEqual(caught.exception.account_id,number)
+                        self.assertEqual([k for k,v in caught.exception.checks.items() if not v],[check])
+                with patch.object(e,'call',return_value=dict(accounts=[])):
+                    with self.assertRaises(e.AccountVerificationError) as caught:
+                        e.verify_account('fixture')
+                    self.assertEqual(caught.exception.checks,dict(account_found=False))
+                with patch.object(e,'copy_role',return_value='Follower'):
+                    with self.assertRaises(e.AccountVerificationError) as caught:
+                        e.verify_account('fixture')
+                    self.assertFalse(caught.exception.checks['role_matches'])
+
     def test_duplicate_and_symbol_claims_survive_restart(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(live_store,"DB_PATH",Path(folder)/"db"):
             job = dict(alert_id=1,contract_id="CON.F.US.MNQ.Z26",state="Intent")
