@@ -96,8 +96,9 @@ because a local process cannot manage software exits while the computer is off.
 Use the existing Pause/Start and Safeguards Apply workflows for operator changes;
 deployment does not unlock losses or bypass uncertain execution outcomes.
 
-Review the calendar before its expiration. Failed identity, stale data, expired
-calendar, missing protection or exhausted limits must continue to block entries.
+Review the calendar before its expiration. Missing or expired reviewed CME
+coverage is advisory rather than an entry blocker. Failed identity, stale price
+data, missing protection or exhausted limits must continue to block entries.
 Use Diagnostics > Practice operations to inspect current evidence.
 
 Bounded live observation and mocked failure tests are not a multi-day live outage

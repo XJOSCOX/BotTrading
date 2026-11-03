@@ -25,15 +25,19 @@ class CalendarTests(unittest.TestCase):
         patcher = patch.object(calendar, "CALENDAR_PATH", self.path)
         patcher.start()
         self.addCleanup(patcher.stop)
+        news = patch('goxtrade.market.economic_calendar.entry_block', return_value=None)
+        news.start()
+        self.addCleanup(news.stop)
 
     def install(self, values):
         # JSON fixture, not an app configuration or an actual approved schedule.
         self.path.write_text(json.dumps(values), encoding="utf-8")
 
-    def test_missing_snapshot_preserves_legacy_but_blocks_new_strategy(self):
+    def test_missing_snapshot_is_advisory_for_all_strategies(self):
         now = pd.Timestamp("2026-10-01T15:00:00Z")
         self.assertTrue(execution_schedule(now)["allow_entry"])
-        self.assertIsNotNone(calendar.entry_block(now))
+        self.assertIsNone(calendar.entry_block(now))
+        self.assertTrue(calendar.restriction(now, required=True)['advisory'])
 
     def test_reviewed_early_close_adds_cutoff_and_flatten_buffer(self):
         self.install(reviewed())
@@ -49,20 +53,22 @@ class CalendarTests(unittest.TestCase):
         self.assertTrue(schedule["flatten"])
         self.assertFalse(execution_schedule(pd.Timestamp("2026-10-03T15:00:00Z"), calendar=False)["allow_entry"])
 
-    def test_stale_future_invalid_unknown_calendar_denies_without_guessing_flatten(self):
+    def test_stale_future_invalid_unknown_calendar_warns_without_guessing_flatten(self):
         for changes in (dict(reviewed_at="2026-09-01T12:00:00Z"), dict(reviewed_at="2026-10-02T12:00:00Z"),
                         dict(source_url="https://example.com/calendar"), dict(timezone="Invalid/Zone"),
                         dict(valid_until="2026-10-01T14:00:00Z")):
             self.install({**reviewed(), **changes})
             state = calendar.restriction(pd.Timestamp("2026-10-01T15:00:00Z"), required=True)
-            self.assertFalse(state["allow_entry"], changes)
+            self.assertTrue(state["allow_entry"], changes)
+            self.assertTrue(state["advisory"], changes)
             self.assertFalse(state["flatten"], changes)
 
-    def test_overlaps_and_timezone_naive_sessions_fail_closed(self):
+    def test_overlaps_and_timezone_naive_sessions_are_not_used_as_restrictions(self):
         for sessions in ([dict(open="2026-10-01T13:30:00", close="2026-10-01T18:00:00")],
                          reviewed()["sessions"]+reviewed()["sessions"]):
             self.install(dict(reviewed(), sessions=sessions))
-            self.assertIsNotNone(calendar.entry_block(pd.Timestamp("2026-10-01T15:00:00Z")))
+            self.assertIsNone(calendar.entry_block(pd.Timestamp("2026-10-01T15:00:00Z")))
+            self.assertTrue(calendar.restriction(pd.Timestamp("2026-10-01T15:00:00Z"))['advisory'])
 
     def test_dst_offsets_use_absolute_instants_not_fixed_offset_arithmetic(self):
         value = dict(reviewed(), reviewed_at="2026-10-30T12:00:00Z", valid_from="2026-10-30T12:00:00Z",
@@ -74,7 +80,7 @@ class CalendarTests(unittest.TestCase):
     def test_historical_simulation_does_not_read_todays_calendar_file(self):
         self.path.write_text("invalid", encoding="utf-8")
         now = pd.Timestamp("2026-10-01T15:00:00Z")
-        self.assertFalse(execution_schedule(now)["allow_entry"])
+        self.assertTrue(execution_schedule(now)["allow_entry"])
         self.assertTrue(execution_schedule(now, calendar=False)["allow_entry"])
 
     def test_passive_review_reports_expiry_and_never_rewrites_calendar(self):
@@ -87,4 +93,14 @@ class CalendarTests(unittest.TestCase):
         self.assertEqual(self.path.read_bytes(),before)
         expired=calendar.review_status(pd.Timestamp('2026-10-02T22:00:00Z'))
         self.assertFalse(expired['valid'])
-        self.assertFalse(expired['currently_open'])
+        self.assertIsNone(expired['currently_open'])
+        self.assertTrue(expired['advisory'])
+
+    def test_expired_calendar_does_not_bypass_cutoff_flatten_or_weekend(self):
+        self.install(reviewed())
+        for stamp, flatten in [('2026-11-03T14:50:00-06:00',False),
+                               ('2026-11-03T15:05:00-06:00',True),
+                               ('2026-11-07T12:00:00-06:00',True)]:
+            state = execution_schedule(pd.Timestamp(stamp))
+            self.assertFalse(state['allow_entry'])
+            self.assertEqual(state['flatten'],flatten)

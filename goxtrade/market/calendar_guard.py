@@ -48,13 +48,14 @@ def validate(values, now):
 
 def restriction(now, required=False):
     if not CALENDAR_PATH.exists():
-        return dict(allow_entry=not required, flatten=False,
-                    reason="Reviewed CME calendar is not configured; VWAP broker Practice is blocked")
+        return dict(allow_entry=True, flatten=False, advisory=True,
+                    reason="CME calendar warning: no reviewed calendar; normal trading schedule applies")
     try:
         values = json.loads(CALENDAR_PATH.read_text(encoding="utf-8"))
         intervals = validate(values, now)
     except (OSError, ValueError, KeyError, TypeError) as error:
-        return dict(allow_entry=False, flatten=False, reason=f"Reviewed CME calendar unavailable: {error}")
+        return dict(allow_entry=True, flatten=False, advisory=True,
+                    reason=f"CME calendar warning: {error}; normal trading schedule applies")
     now = stamp(now)
     current = next(((begin, end) for begin, end in intervals if begin <= now < end), None)
     if current is None:
@@ -82,5 +83,5 @@ def review_status(now):
                     reason=f"Reviewed calendar valid through {values['valid_until']}" +
                            ("; review due within 24 hours" if remaining <= 86400 else ""))
     except (OSError, ValueError, KeyError, TypeError):
-        return dict(valid=False, currently_open=False, expires_soon=True,
-                    reason="Reviewed calendar missing, invalid or expired; entries remain blocked")
+        return dict(valid=False, currently_open=None, expires_soon=True, advisory=True,
+                    reason="Reviewed calendar missing, invalid or expired; normal trading schedule applies")

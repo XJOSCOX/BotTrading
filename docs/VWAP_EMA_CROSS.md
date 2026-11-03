@@ -59,8 +59,9 @@ VWAP never silently starts at a truncated file boundary. Every expected open
 minute from the anchor must exist. No price/volume is forward-filled. Zero-volume
 bars add zero weight; zero cumulative volume or a zero-volume signal candle blocks
 entry. Standard CT daily/weekend closures are encoded. An optional reviewed CME
-calendar can only restrict execution windows; it is required for this strategy's
-broker Practice entries. This is not an automatic exchange-status service.
+calendar can only restrict execution windows when valid. Missing or expired
+coverage is advisory; normal execution hours and all other entry checks still
+apply. This is not an automatic exchange-status service.
 Unexpected missing intervals suppress entries and need manual review. See
 [Phase 2 validation](PHASE2_VALIDATION.md) for calendar coverage and setup.
 

@@ -98,9 +98,11 @@ class EnvelopeTests(unittest.TestCase):
             self.assertFalse(e.claim(dict(alert_id=1, state="Intent")))
             post.assert_not_called()
 
-    def test_each_account_requires_permission_and_reviewed_calendar(self):
+    def test_each_account_requires_permission_and_honors_known_calendar_restrictions(self):
         with tempfile.TemporaryDirectory() as folder, patch("goxtrade.market.calendar_guard.CALENDAR_PATH", Path(folder)/"absent.json"):
-            self.assertIn("calendar", order_block(self.signal, "practice"))
+            self.assertIsNone(order_block(self.signal, "practice"))
+        with patch('goxtrade.market.calendar_guard.entry_block',return_value='Reviewed CME calendar: exchange closed'):
+            self.assertIn('exchange closed',order_block(self.signal,'practice'))
         self.assertIn("explicitly enabled", order_block(self.signal, "leader"))
 
 

@@ -269,8 +269,8 @@ class RoundTripTests(unittest.TestCase):
 
     def test_closed_market_or_existing_global_restriction_is_not_bypassed(self):
         with patch("goxtrade.execution.practice_order_roundtrip.execution_schedule",return_value=dict(allow_entry=False,flatten=True)),self.assertRaises(TestBlocked):self.propose()
-        calendar_guard.CALENDAR_PATH.write_text("{}")
-        with self.assertRaises(TestBlocked):self.propose()
+        with patch.object(calendar_guard,'restriction',return_value=dict(allow_entry=False,flatten=True,reason='Reviewed CME calendar: exchange closed')):
+            with self.assertRaises(TestBlocked):self.propose()
 
     def test_open_positions_unknown_orders_and_unresolved_jobs_block(self):
         self.broker.positions=[dict(accountId=41,size=1)]

@@ -119,6 +119,12 @@ or actual strategy ranking was possible without market data.
 
 ## Reviewed Calendar Configuration
 
+Current operator policy: missing, invalid or expired reviewed CME coverage is a
+warning, not an authorization gate. Valid reviewed closures still restrict entry.
+Normal execution hours, news-event windows and all non-calendar risk checks remain
+in force. Calendar freshness is reported separately; warnings do not claim known
+holiday coverage. This supersedes earlier required-calendar acceptance language.
+
 Investigated maintained calendar support, but did not assume a generic CME equity
 calendar exactly matches every supported product and Topstep execution window.
 Use official CME product/holiday notices. No brittle yearly table or new unverified
