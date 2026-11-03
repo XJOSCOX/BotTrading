@@ -5,7 +5,14 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
-import { RefreshCw, Play, Pause, ShieldAlert } from "lucide-react";
+import {
+  RefreshCw,
+  Play,
+  Pause,
+  ShieldAlert,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 import { ct, money, price, type Json } from "../api";
 import { Badge, Field, Metric, Notice, Table, Toggle } from "../components";
 import { type PageProps, tone, fresh } from "../pageTypes";
@@ -19,7 +26,10 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
     [name, setName] = useState(""),
     [confirmed, setConfirmed] = useState(false),
     [ack, setAck] = useState(false),
-    [tab, setTab] = useState("Order attempts");
+    [tab, setTab] = useState("Order attempts"),
+    [historyPage, setHistoryPage] = useState(0),
+    [pageSize, setPageSize] = useState(10);
+  useEffect(() => setHistoryPage(0), [tab, profile]);
   const valid = fresh(runtime.updated_at),
     credential = !!config.credentials_present,
     target = config.targets[profile],
@@ -50,6 +60,23 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
       ? "Enabled"
       : "Unverified"
     : "Paused";
+  const historyRows: Json[] =
+    tab === "Order attempts"
+      ? p.jobs || []
+      : tab === "Broker fills"
+        ? p.fills || []
+        : (live.events || []).filter(
+            (r: Json) =>
+              r.kind === "Entry blocked" &&
+              (profile === "leader") ===
+                String(r.topic || "").startsWith("leader:"),
+          );
+  const pageCount = Math.max(1, Math.ceil(historyRows.length / pageSize));
+  const currentPage = Math.min(historyPage, pageCount - 1);
+  const visibleHistory = historyRows.slice(
+    currentPage * pageSize,
+    (currentPage + 1) * pageSize,
+  );
   const sizeFor = (symbol: string) => {
     if (
       (symbol === "MYM" && !settings.enable_mym) ||
@@ -184,10 +211,13 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
           </p>
         </aside>
         <section>
-          <div className="section-heading">
+          <div className="section-heading execution-strategy-heading">
             <h2>
               {settings.enabled ? "Enabled strategies" : "Saved strategies"}
             </h2>
+            <Badge tone={settings.enabled && valid ? "positive" : ""}>
+              {strategyState}
+            </Badge>
             <span>
               {config.policies?.[profile]?.entry_confirmation_mode ===
               "standard"
@@ -201,13 +231,14 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
             aria-label="Execution strategies"
           >
             {strategyIds.map((id) => (
-              <div className="detail-row" role="listitem" key={id}>
+              <div className="execution-strategy" role="listitem" key={id}>
+                <span
+                  aria-hidden="true"
+                  className={`status-dot${settings.enabled && valid ? " online" : ""}`}
+                />
                 <span>
                   {config.strategies.find((s: Json) => s.id === id)?.name || id}
                 </span>
-                <Badge tone={settings.enabled && valid ? "positive" : ""}>
-                  {strategyState}
-                </Badge>
               </div>
             ))}
             {!strategyIds.length && (
@@ -267,81 +298,125 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
               empty="Broker reports no open positions"
             />
           )}
-          <Tabs
-            values={["Order attempts", "Broker fills", "Rejected signals"]}
-            selected={tab}
-            onChange={setTab}
-          />
-          {tab === "Order attempts" ? (
-            <Table
-              heads={[
-                "Submitted / CT",
-                "Symbol",
-                "Qty",
-                "State",
-                "Confirmation",
-                "Actual fill",
-                "Protection",
-                "Reason",
-              ]}
-              rows={(p.jobs || []).map((j: Json) => [
-                ct(j.sent_at ? new Date(j.sent_at * 1000).toISOString() : null),
-                j.symbol,
-                j.quantity,
-                <Badge
-                  tone={
-                    j.state === "Rejected" || j.state === "Unknown"
-                      ? "negative"
-                      : j.state === "Open"
-                        ? "positive"
-                        : ""
-                  }
+          <div className="execution-history">
+            <Tabs
+              values={["Order attempts", "Broker fills", "Rejected signals"]}
+              selected={tab}
+              onChange={setTab}
+            />
+            {tab === "Order attempts" ? (
+              <Table
+                heads={[
+                  "Submitted / CT",
+                  "Symbol",
+                  "Qty",
+                  "State",
+                  "Confirmation",
+                  "Actual fill",
+                  "Protection",
+                  "Reason",
+                ]}
+                rows={visibleHistory.map((j: Json) => [
+                  ct(
+                    j.sent_at ? new Date(j.sent_at * 1000).toISOString() : null,
+                  ),
+                  j.symbol,
+                  j.quantity,
+                  <Badge
+                    tone={
+                      j.state === "Rejected" || j.state === "Unknown"
+                        ? "negative"
+                        : j.state === "Open"
+                          ? "positive"
+                          : ""
+                    }
+                  >
+                    {j.state}
+                  </Badge>,
+                  j.entry_confirmation_mode || "--",
+                  price(j.fill_price),
+                  j.protected ? "Verified" : "Not verified",
+                  j.error_message || j.close_reason || "--",
+                ])}
+              />
+            ) : tab === "Rejected signals" ? (
+              <Table
+                heads={["Time / CT", "Alert", "Reason"]}
+                rows={visibleHistory.map((r: Json) => [
+                  ct(r.time),
+                  r.alert_id,
+                  r.detail,
+                ])}
+                empty="No rejected signals recorded"
+              />
+            ) : (
+              <Table
+                heads={[
+                  "Time / CT",
+                  "Account",
+                  "Contract",
+                  "Side",
+                  "Qty",
+                  "Fill",
+                  "Realized P&L",
+                  "Fees",
+                ]}
+                rows={visibleHistory.map((f: Json) => [
+                  ct(f.creationTimestamp),
+                  f.accountId,
+                  f.contractId,
+                  f.side === 0 ? "Buy" : "Sell",
+                  f.size,
+                  price(f.price),
+                  money(f.profitAndLoss),
+                  money(f.fees),
+                ])}
+              />
+            )}
+            <div className="execution-pagination">
+              <span role="status" aria-label="History range">
+                {historyRows.length ? currentPage * pageSize + 1 : 0}-
+                {Math.min((currentPage + 1) * pageSize, historyRows.length)} of{" "}
+                {historyRows.length}
+              </span>
+              <label>
+                Rows{" "}
+                <select
+                  aria-label="History rows per page"
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setHistoryPage(0);
+                  }}
                 >
-                  {j.state}
-                </Badge>,
-                j.entry_confirmation_mode || "--",
-                price(j.fill_price),
-                j.protected ? "Verified" : "Not verified",
-                j.error_message || j.close_reason || "--",
-              ])}
-            />
-          ) : tab === "Rejected signals" ? (
-            <Table
-              heads={["Time / CT", "Alert", "Reason"]}
-              rows={(live.events || [])
-                .filter(
-                  (r: Json) =>
-                    r.kind === "Entry blocked" &&
-                    (profile === "leader") ===
-                      String(r.topic || "").startsWith("leader:"),
-                )
-                .map((r: Json) => [ct(r.time), r.alert_id, r.detail])}
-              empty="No rejected signals recorded"
-            />
-          ) : (
-            <Table
-              heads={[
-                "Time / CT",
-                "Account",
-                "Contract",
-                "Side",
-                "Qty",
-                "Fill",
-                "Realized P&L",
-                "Fees",
-              ]}
-              rows={(p.fills || []).map((f: Json) => [
-                ct(f.creationTimestamp),
-                f.accountId,
-                f.contractId,
-                f.side === 0 ? "Buy" : "Sell",
-                f.size,
-                price(f.price),
-                money(f.profitAndLoss),
-                money(f.fees),
-              ])}
-            />
-          )}
+                  {[5, 10, 25].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <button
+                aria-label="Previous history page"
+                title="Previous page"
+                disabled={currentPage === 0}
+                onClick={() => setHistoryPage(currentPage - 1)}
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span>
+                {currentPage + 1} / {pageCount}
+              </span>
+              <button
+                aria-label="Next history page"
+                title="Next page"
+                disabled={currentPage + 1 >= pageCount}
+                onClick={() => setHistoryPage(currentPage + 1)}
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
         </section>
       </div>
       {dialog && (

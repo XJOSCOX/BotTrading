@@ -1308,14 +1308,71 @@ main {
   min-width: 0;
 }
 .execution-strategies {
-  margin-bottom: 20px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 130px), 1fr));
+  gap: 8px 16px;
+  padding: 8px 0 16px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
 }
-.execution-strategies .detail-row {
-  gap: 12px;
+.execution-strategy-heading {
+  flex-wrap: wrap;
+  gap: 8px 12px;
 }
-.execution-strategies .detail-row > span:first-child {
+.execution-strategy-heading > span:last-child {
+  margin-left: auto;
+}
+.execution-strategy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   min-width: 0;
+  font-size: 12px;
+  min-height: 28px;
+}
+.execution-strategy > span:last-child {
   overflow-wrap: anywhere;
+}
+.execution-strategy .status-dot {
+  flex: 0 0 6px;
+  margin-top: 0;
+}
+.execution-history > .table-scroll {
+  max-height: 420px;
+  overflow: auto;
+}
+.execution-history th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.execution-pagination {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.execution-pagination > span:first-child {
+  margin-right: auto;
+}
+.execution-pagination label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.execution-pagination select {
+  width: 60px;
+  min-height: 32px;
+  padding: 4px;
+}
+.execution-pagination button {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  justify-content: center;
 }
 .run-panel {
   padding-right: 23px;
