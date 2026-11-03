@@ -36,7 +36,9 @@ def clean(value):
 def read_records(conn, tables, table, order="rowid DESC", limit=1000):
     if table not in tables:
         return []
-    return [json.loads(row[0]) for row in conn.execute(f"SELECT record FROM {table} ORDER BY {order} LIMIT ?", (limit,))]
+    query = f"SELECT record FROM {table} ORDER BY {order}"
+    rows = conn.execute(query if limit is None else query+" LIMIT ?", () if limit is None else (limit,))
+    return [json.loads(row[0]) for row in rows]
 
 
 def job_display_state(job, health, account_id, now=None):
@@ -67,8 +69,9 @@ def profile_state(conn, tables, profile):
         row = conn.execute(f"SELECT settings,status FROM {table} WHERE id=1").fetchone()
         if row:
             settings, runtime = json.loads(row[0]), json.loads(row[1])
-    jobs = read_records(conn, tables, profile+"_jobs", limit=10000)
-    fills = read_records(conn, tables, profile+"_fills", limit=50000)
+    # Lifetime analytics must not shrink when the account changes or the journal grows.
+    jobs = read_records(conn, tables, profile+"_jobs", limit=None)
+    fills = read_records(conn, tables, profile+"_fills", limit=None)
     if profile+"_history_status" in tables:
         row = conn.execute(f"SELECT record FROM {profile}_history_status WHERE id=1").fetchone()
         history = json.loads(row[0]) if row else {}

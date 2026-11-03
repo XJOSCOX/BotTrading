@@ -36,6 +36,20 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
   const lossLimit =
     p.safeguards?.active?.loss_lock ??
     config.safeguards?.[profile]?.active?.loss_lock;
+  const sessionMatches =
+    profile !== "practice" || automation?.account_id === target.id;
+  const strategyIds: string[] = settings.enabled
+    ? sessionMatches
+      ? profile === "practice"
+        ? automation?.strategies || []
+        : savedStrategies
+      : []
+    : savedStrategies;
+  const strategyState = settings.enabled
+    ? valid
+      ? "Enabled"
+      : "Unverified"
+    : "Paused";
   const sizeFor = (symbol: string) => {
     if (
       (symbol === "MYM" && !settings.enable_mym) ||
@@ -170,6 +184,40 @@ export function Execution({ live, config, profile, act, busy }: PageProps) {
           </p>
         </aside>
         <section>
+          <div className="section-heading">
+            <h2>
+              {settings.enabled ? "Enabled strategies" : "Saved strategies"}
+            </h2>
+            <span>
+              {config.policies?.[profile]?.entry_confirmation_mode ===
+              "standard"
+                ? "Standard confirmation"
+                : "Strict confirmation"}
+            </span>
+          </div>
+          <div
+            className="execution-strategies"
+            role="list"
+            aria-label="Execution strategies"
+          >
+            {strategyIds.map((id) => (
+              <div className="detail-row" role="listitem" key={id}>
+                <span>
+                  {config.strategies.find((s: Json) => s.id === id)?.name || id}
+                </span>
+                <Badge tone={settings.enabled && valid ? "positive" : ""}>
+                  {strategyState}
+                </Badge>
+              </div>
+            ))}
+            {!strategyIds.length && (
+              <p>
+                {settings.enabled
+                  ? "Strategy session not verified"
+                  : "No strategies selected"}
+              </p>
+            )}
+          </div>
           <div className="metric-band compact">
             <Metric label="Winning exits" value={p.totals?.wins ?? 0} />
             <Metric label="Losing exits" value={p.totals?.losses ?? 0} />

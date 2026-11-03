@@ -80,6 +80,29 @@ class NativeApiTests(unittest.TestCase):
         self.client.cookies.clear()
         self.assertEqual(self.client.get("/api/snapshot").status_code, 401)
 
+    def test_lifetime_results_survive_account_switch_and_bounded_journal(self):
+        target = api_module.identity.TARGETS['practice']
+        old = target['id']+1
+        with closing(live_store.connect()) as conn:
+            conn.execute('CREATE TABLE practice_jobs (alert_id INTEGER PRIMARY KEY,record TEXT)')
+            conn.execute('CREATE TABLE practice_fills (id INTEGER PRIMARY KEY,record TEXT)')
+            job = dict(alert_id=1,state='Closed',account_id=old,strategy='CRT',symbol='MNQ',order_id=10,
+                       quantity=1,side=0,contract_id='MNQ',closed_confirmed_at='2026-09-17T03:02:00Z')
+            entry = dict(id=1,accountId=old,orderId=10,size=1,side=0,contractId='MNQ',creationTimestamp='2026-09-17T03:00:00Z',fees=1)
+            exit = dict(entry,id=2,orderId=11,side=1,creationTimestamp='2026-09-17T03:01:00Z',profitAndLoss=12)
+            conn.execute('INSERT INTO practice_jobs VALUES(1,?)',(json.dumps(job),))
+            conn.executemany('INSERT INTO practice_jobs VALUES(?,?)',[(i,json.dumps(dict(alert_id=i,state='Rejected'))) for i in range(2,10003)])
+            conn.executemany('INSERT INTO practice_fills VALUES(?,?)',[(f['id'],json.dumps(f)) for f in [entry,exit]])
+            conn.commit()
+            before = list(conn.execute('SELECT record FROM practice_jobs ORDER BY alert_id'))
+            result = state.profile_state(conn,{'practice_jobs','practice_fills'},'practice')
+            self.assertEqual(len(result['jobs']),300)
+            self.assertEqual(result['target']['id'],target['id'])
+            self.assertEqual(result['totals']['wins'],1)
+            self.assertEqual(result['trades'][0]['account_id'],old)
+            self.assertEqual(result['trades'][0]['net'],10)
+            self.assertEqual(list(conn.execute('SELECT record FROM practice_jobs ORDER BY alert_id')),before)
+
     def test_host_and_cross_site_requests_are_rejected(self):
         self.assertEqual(self.client.get("/api/session", headers={"host":"evil.example"}).status_code, 403)
         self.assertEqual(self.client.get("/api/config", headers={"sec-fetch-site":"cross-site"}).status_code, 403)

@@ -1307,6 +1307,16 @@ main {
 .execution-layout > section {
   min-width: 0;
 }
+.execution-strategies {
+  margin-bottom: 20px;
+}
+.execution-strategies .detail-row {
+  gap: 12px;
+}
+.execution-strategies .detail-row > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .run-panel {
   padding-right: 23px;
   border-right: 1px solid var(--border);

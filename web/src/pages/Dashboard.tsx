@@ -7,10 +7,16 @@ import "./Dashboard.css";
 
 export function Dashboard({ live, profile }: PageProps) {
   const [period, setPeriod] = useState("All saved"),
-    [scope, setScope] = useState("Current account");
+    [scopes, setScopes] = useState<Record<string, string>>({});
+  const scope =
+    scopes[profile] ||
+    (profile === "practice" ? "All saved accounts" : "Current account");
   const p = live.profiles[profile] || {},
     jobs = p.jobs || [],
     all: Json[] = p.trades || [];
+  const accounts = [
+    ...new Set(all.map((r) => r.account_id).filter((id) => id != null)),
+  ].sort((a, b) => a - b);
   let cutoff = 0;
   if (period === "Today") {
     const now = new Date(),
@@ -38,6 +44,8 @@ export function Dashboard({ live, profile }: PageProps) {
     .filter(
       (r) =>
         (scope !== "Current account" || r.account_id === p.target?.id) &&
+        (!scope.startsWith("account:") ||
+          String(r.account_id) === scope.slice(8)) &&
         Date.parse(r.closed_at) >= cutoff,
     )
     .sort((a, b) => Date.parse(a.closed_at) - Date.parse(b.closed_at));
@@ -88,10 +96,15 @@ export function Dashboard({ live, profile }: PageProps) {
         <select
           aria-label="History scope"
           value={scope}
-          onChange={(e) => setScope(e.target.value)}
+          onChange={(e) => setScopes({ ...scopes, [profile]: e.target.value })}
         >
           <option>Current account</option>
           <option>All saved accounts</option>
+          {accounts.map((id) => (
+            <option key={id} value={`account:${id}`}>
+              Account {id}
+            </option>
+          ))}
         </select>
       </div>
       <div className="context-bar">
@@ -193,6 +206,11 @@ export function Dashboard({ live, profile }: PageProps) {
           </div>
           <div className="section-heading">
             <h2>Strategy performance</h2>
+            <span>
+              {scope.startsWith("account:")
+                ? `Account ${scope.slice(8)}`
+                : scope}
+            </span>
           </div>
           {ranks.length ? (
             ranks.map((r) => (
@@ -200,7 +218,8 @@ export function Dashboard({ live, profile }: PageProps) {
                 <div>
                   <b>{r.name}</b>
                   <small>
-                    {r.count} trades · {r.win.toFixed(0)}% win rate
+                    {r.count} {r.count === 1 ? "trade" : "trades"} ·{" "}
+                    {r.win.toFixed(1)}% win rate
                   </small>
                 </div>
                 <strong className={tone(r.net)}>{money(r.net)}</strong>
@@ -240,6 +259,7 @@ export function Dashboard({ live, profile }: PageProps) {
       <Table
         heads={[
           "Closed",
+          "Account",
           "Instrument",
           "Strategy",
           "Side",
@@ -252,6 +272,7 @@ export function Dashboard({ live, profile }: PageProps) {
           .slice(0, 40)
           .map((r) => [
             ct(r.closed_at),
+            r.account_id ?? "Unknown",
             r.symbol,
             r.strategy,
             <Badge tone={r.direction === "LONG" ? "positive" : "negative"}>

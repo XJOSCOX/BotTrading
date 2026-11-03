@@ -25,6 +25,17 @@ class PracticeHistoryTests(unittest.TestCase):
             self.assertEqual(api.call_args_list[1].args[1]["accountId"], history.ACCOUNT_ID)
             self.assertEqual(history.totals(fills)["wins"], 0)
 
+            # An empty broker response after a reset must not erase saved fills.
+            empty = [responses[0], dict(success=True,trades=[]),responses[2],responses[3]]
+            with patch.object(history,'post',side_effect=empty):
+                history.refresh('test')
+            self.assertEqual(history.snapshot()[1],fills)
+            replacement = history.ACCOUNT_ID+1
+            with patch.object(history,'ACCOUNT_ID',replacement),patch.object(history,'ACCOUNT_NAME','PRAC-REPLACEMENT'), \
+                    patch.object(history,'post',side_effect=[dict(success=True,accounts=[dict(id=replacement,name='PRAC-REPLACEMENT',simulated=True)]),*empty[1:]]):
+                history.refresh('test')
+            self.assertEqual(history.snapshot()[1],fills)
+
     def test_wrong_account_fails_before_trade_fetch(self):
         with patch.object(history, "post", return_value={"success": True, "accounts": []}) as api:
             with self.assertRaises(ValueError):
