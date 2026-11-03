@@ -321,6 +321,14 @@ class NativeApiTests(unittest.TestCase):
             self.assertEqual(self.post("/api/execution/practice/start", body).status_code, 503)
             start.assert_called_once_with(["crt"],target["name"],True,confirmed_quantities=settings["quantities"],acknowledge_loss=False)
 
+        with patch.object(practice_executor, "snapshot", return_value=(settings,runtime,[])), \
+                patch("goxtrade.execution.practice_automation.start", side_effect=RuntimeError("Execution account identity or eligibility check failed")) as start:
+            response = self.post("/api/execution/practice/start", body)
+            self.assertEqual(response.status_code, 400)
+            self.assertIn("trading eligibility", response.json()["detail"])
+            self.assertIn("Execution was not enabled", response.json()["detail"])
+            start.assert_called_once()
+
     def test_retired_practice_start_paths_cannot_bypass_manager(self):
         target=api_module.identity.TARGETS["practice"]
         body=dict(name=target["name"],safeguards=True)

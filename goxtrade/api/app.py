@@ -417,7 +417,16 @@ def create_app():
     @app.post("/api/execution/{profile}/{action}", dependencies=[Depends(mutation)])
     async def execution(profile: Profile, action: Literal["arm", "pause", "emergency", "monitor", "start"], body: Authorization):
         async with app.state.action_lock:
-            return await asyncio.to_thread(execute, profile, action, body)
+            try:
+                return await asyncio.to_thread(execute, profile, action, body)
+            except RuntimeError as error:
+                if str(error) != "Execution account identity or eligibility check failed":
+                    raise
+                raise ValueError(
+                    "The saved execution account failed broker identity or trading eligibility verification. "
+                    "Review the configured account before starting; account replacement requires flat accounts "
+                    "with no working orders. Execution was not enabled."
+                ) from error
 
     @app.get("/api/services", dependencies=[Depends(session)])
     def service_status():
