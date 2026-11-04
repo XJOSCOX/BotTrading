@@ -100,6 +100,11 @@ def run_connection(subscriptions) -> None:
             except Exception:
                 feed_status.update("connected / subscription request failed",error="SUBSCRIPTION_FAILED")
                 raise
+        # signalrcore otherwise starts its heartbeat only with automatic reconnect.
+        # Keep our fresh-auth reconnect loop as the sole reconnect owner.
+        checker = connection.transport.connection_checker
+        if not checker.running:
+            checker.start()
 
     connection.on("GatewayQuote", on_quote)
     connection.on("GatewayTrade", on_trade)
@@ -122,6 +127,11 @@ def run_connection(subscriptions) -> None:
                 logging.warning("No market events for 120 seconds; reconnecting")
                 break
     finally:
+        # Disconnected transports can skip heartbeat cleanup in connection.stop().
+        try:
+            connection.transport.connection_checker.stop()
+        except Exception:
+            logging.warning("Market heartbeat cleanup failed")
         try:
             connection.stop()
         except Exception:
