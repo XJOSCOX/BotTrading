@@ -110,6 +110,42 @@ class ContractHistoryTests(unittest.TestCase):
         self.trade(102., self.now+pd.Timedelta(minutes=1, seconds=35))
         self.assertFalse(self.load().iloc[-1]["complete"])
 
+    def test_coverage_close_reads_last_indexed_receipt_without_scanning_history(self):
+        with closing(live_store.connect()) as conn:
+            initialize(conn)
+            feed_coverage.initialize(conn)
+            start=self.now.isoformat()
+            receipt=(self.now+pd.Timedelta(seconds=30)).isoformat()
+            conn.execute('INSERT INTO strategy_feed_windows(symbol,contract_id,opened_at) VALUES (?,?,?)',('NQ=F',self.contract,start))
+            conn.executemany('INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)',
+                             [('NQ=F',self.contract,'trade',100.,receipt,receipt)]*20000)
+            conn.execute('INSERT INTO live_ticks(symbol,contract_id,event_type,price,event_time,received_at) VALUES (?,?,?,?,?,?)',
+                         ('NQ=F','OTHER','trade',200.,receipt,(self.now+pd.Timedelta(minutes=5)).isoformat()))
+            conn.commit()
+            # A whole-contract aggregate exceeds this deterministic VM budget.
+            conn.set_progress_handler(lambda: 1,2000)
+            try:
+                feed_coverage.close_windows(conn,'NQ=F',self.contract,(self.now+pd.Timedelta(minutes=1)).isoformat())
+            finally:
+                conn.set_progress_handler(None,0)
+            self.assertEqual(conn.execute('SELECT closed_at FROM strategy_feed_windows').fetchone()[0],receipt)
+            statements=[]
+            conn.set_trace_callback(statements.append)
+            feed_coverage.close_windows(conn,'NQ=F',self.contract,start)
+            self.assertFalse(any('FROM live_ticks' in sql for sql in statements))
+
+    def test_coverage_end_never_precedes_open_or_uses_a_future_receipt(self):
+        feed_coverage.opened('NQ=F',self.contract,self.now)
+        feed_coverage.closed('NQ=F',self.contract,self.now+pd.Timedelta(minutes=1))
+        with closing(live_store.connect()) as conn:
+            self.assertEqual(pd.Timestamp(conn.execute('SELECT closed_at FROM strategy_feed_windows').fetchone()[0]),self.now)
+        feed_coverage.opened('NQ=F',self.contract,self.now)
+        self.trade(100.,self.now,received=self.now+pd.Timedelta(minutes=5))
+        self.trade(101.,self.now,received=self.now-pd.Timedelta(seconds=1))
+        feed_coverage.closed('NQ=F',self.contract,self.now+pd.Timedelta(minutes=1))
+        with closing(live_store.connect()) as conn:
+            self.assertEqual(pd.Timestamp(conn.execute('SELECT closed_at FROM strategy_feed_windows ORDER BY id DESC LIMIT 1').fetchone()[0]),self.now)
+
     def test_coverage_boundaries_are_rounded_once_without_finalizing_partial_minutes(self):
         from unittest.mock import Mock
         start=Mock()

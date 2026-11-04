@@ -25,8 +25,14 @@ def closed(symbol, contract_id, now):
 
 
 def close_windows(conn, symbol, contract_id, stamp):
-    latest = conn.execute("SELECT MAX(received_at) FROM live_ticks WHERE symbol=? AND contract_id=?", (symbol, contract_id)).fetchone()[0]
-    for row in conn.execute("SELECT id,opened_at FROM strategy_feed_windows WHERE symbol=? AND contract_id=? AND closed_at IS NULL", (symbol, contract_id)).fetchall():
+    pending = conn.execute("SELECT id,opened_at FROM strategy_feed_windows WHERE symbol=? AND contract_id=? AND closed_at IS NULL", (symbol, contract_id)).fetchall()
+    if not pending:
+        return
+    # The last persisted receipt is conservative even if the wall clock regressed.
+    # MAX(received_at) scans the whole contract history inside the hub callback.
+    latest = conn.execute("SELECT received_at FROM live_ticks WHERE symbol=? AND contract_id=? ORDER BY id DESC LIMIT 1", (symbol, contract_id)).fetchone()
+    latest = latest[0] if latest else None
+    for row in pending:
         end = max(pd.Timestamp(row[1]), min(pd.Timestamp(stamp), pd.Timestamp(latest or row[1])))
         conn.execute("UPDATE strategy_feed_windows SET closed_at=? WHERE id=?", (end.isoformat(), row[0]))
 
